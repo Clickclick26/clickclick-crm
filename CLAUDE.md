@@ -1,0 +1,3 @@
+# ClickClick CRM
+
+@AGENTS.md
