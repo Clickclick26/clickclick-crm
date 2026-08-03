@@ -2,21 +2,27 @@ import { useEffect, useState } from 'react'
 import { supabase } from './client'
 import type { Agent } from '../../data/mock'
 
-async function fetchAgentRow(userId: string): Promise<Agent | null> {
+async function fetchAgentRow(userId: string): Promise<
+  { row: Agent; error: null } | { row: null; error: string | null }
+> {
   const { data, error } = await supabase
     .from('agents')
     .select('id, name, role, online, personal_number_id')
     .eq('id', userId)
     .maybeSingle()
 
-  if (error || !data) return null
+  if (error) return { row: null, error: error.message }
+  if (!data) return { row: null, error: null }
 
   return {
-    id: data.id,
-    name: data.name,
-    role: data.role,
-    online: data.online,
-    personalNumberId: data.personal_number_id ?? '',
+    row: {
+      id: data.id,
+      name: data.name,
+      role: data.role,
+      online: data.online,
+      personalNumberId: data.personal_number_id ?? '',
+    },
+    error: null,
   }
 }
 
@@ -24,6 +30,7 @@ async function fetchAgentRow(userId: string): Promise<Agent | null> {
 export function useCurrentAgent() {
   const [loading, setLoading] = useState(true)
   const [agent, setAgent] = useState<Agent | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -32,24 +39,32 @@ export function useCurrentAgent() {
       if (!userId) {
         if (!cancelled) {
           setAgent(null)
+          setError(null)
           setLoading(false)
         }
         return
       }
       // The agents row is created by a DB trigger right after sign-up; it can
       // take a moment to land, so retry briefly instead of showing "not found".
+      let lastError: string | null = null
       for (let attempt = 0; attempt < 5; attempt++) {
-        const row = await fetchAgentRow(userId)
+        const result = await fetchAgentRow(userId)
         if (cancelled) return
-        if (row) {
-          setAgent(row)
+        if (result.row) {
+          setAgent(result.row)
+          setError(null)
           setLoading(false)
           return
         }
+        lastError = result.error
         await new Promise((r) => setTimeout(r, 400))
       }
       if (!cancelled) {
         setAgent(null)
+        setError(
+          lastError ??
+            "We couldn't find your team profile after signing in. Contact whoever set up the CRM.",
+        )
         setLoading(false)
       }
     }
@@ -69,7 +84,7 @@ export function useCurrentAgent() {
     }
   }, [])
 
-  return { agent, loading }
+  return { agent, loading, error }
 }
 
 export async function signInWithPassword(email: string, password: string) {
