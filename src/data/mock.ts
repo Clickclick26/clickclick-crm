@@ -38,9 +38,24 @@ export type CallRecord = {
   extension?: string
   when: string
   durationSec?: number
+  /** All calls are recorded; URL filled when call ends */
   recordingUrl?: string
   outcome?: CallOutcome
   agent: string
+  agentId?: string
+}
+
+export type CallFeedback = {
+  id: string
+  callId: string
+  agentId: string
+  agentName: string
+  contactName: string
+  company: string
+  when: string
+  adminName: string
+  note: string
+  createdAt: string
 }
 
 export type Objection = {
@@ -410,6 +425,7 @@ export const CALLS: CallRecord[] = [
     extension: 'ext. 316',
     when: '10 min',
     agent: 'John Bravo',
+    agentId: 'u1',
   },
   {
     id: 'call2',
@@ -419,9 +435,10 @@ export const CALLS: CallRecord[] = [
     extension: 'ext. 316',
     when: 'Sun, May 14',
     durationSec: 214,
-    recordingUrl: '#',
+    recordingUrl: '#rec-call2',
     outcome: 'callback',
     agent: 'Sara Quinn',
+    agentId: 'u2',
   },
   {
     id: 'call3',
@@ -431,9 +448,10 @@ export const CALLS: CallRecord[] = [
     extension: 'ext. 316',
     when: 'Sun, May 14',
     durationSec: 482,
-    recordingUrl: '#',
+    recordingUrl: '#rec-call3',
     outcome: 'sold',
     agent: 'Sara Quinn',
+    agentId: 'u2',
   },
   {
     id: 'call4',
@@ -443,6 +461,7 @@ export const CALLS: CallRecord[] = [
     extension: 'ext. 316',
     when: 'Sun, May 14',
     agent: 'Mike Chen',
+    agentId: 'u3',
   },
   {
     id: 'call5',
@@ -452,9 +471,10 @@ export const CALLS: CallRecord[] = [
     extension: 'ext. 316',
     when: 'Sat, May 13',
     durationSec: 96,
-    recordingUrl: '#',
+    recordingUrl: '#rec-call5',
     outcome: 'do_not_call',
     agent: 'John Bravo',
+    agentId: 'u1',
   },
   {
     id: 'call6',
@@ -464,9 +484,10 @@ export const CALLS: CallRecord[] = [
     extension: 'ext. 316',
     when: 'Sat, May 13',
     durationSec: 640,
-    recordingUrl: '#',
+    recordingUrl: '#rec-call6',
     outcome: 'sold',
     agent: 'Amy Walsh',
+    agentId: 'u4',
   },
   {
     id: 'call7',
@@ -476,9 +497,25 @@ export const CALLS: CallRecord[] = [
     extension: 'ext. 316',
     when: 'Fri, May 12',
     durationSec: 318,
-    recordingUrl: '#',
+    recordingUrl: '#rec-call7',
     outcome: 'callback',
     agent: 'John Bravo',
+    agentId: 'u1',
+  },
+]
+
+export const SEED_CALL_FEEDBACK: CallFeedback[] = [
+  {
+    id: 'fb1',
+    callId: 'call3',
+    agentId: 'u2',
+    agentName: 'Sara Quinn',
+    contactName: 'Priya Desai',
+    company: 'Oak & Vine',
+    when: 'Sun, May 14',
+    adminName: 'John Bravo',
+    note: 'Strong close on price. Next time ask for the decision-maker earlier.',
+    createdAt: '2026-05-14 16:40',
   },
 ]
 
@@ -678,6 +715,53 @@ export type PackageOption = {
 export const BRANDS: { id: BrandId; label: string }[] = [
   { id: 'clickclick', label: 'ClickClick' },
   { id: 'clocal', label: 'CLocal' },
+]
+
+export type InfoKit = {
+  id: string
+  brandId: BrandId
+  name: string
+  blurb: string
+  subject: string
+}
+
+/** Quick sendables for warm-up / intro calls */
+export const INFO_KITS: InfoKit[] = [
+  {
+    id: 'cc-brochure',
+    brandId: 'clickclick',
+    name: 'Brochure',
+    blurb: 'One-pager overview of ClickClick',
+    subject: 'ClickClick — quick overview for you',
+  },
+  {
+    id: 'cc-info',
+    brandId: 'clickclick',
+    name: 'Info kit',
+    blurb: 'Deck + case studies + how we work',
+    subject: 'ClickClick info kit',
+  },
+  {
+    id: 'cc-live',
+    brandId: 'clickclick',
+    name: 'Live commerce pack',
+    blurb: 'Warm-up pack for live shopping chats',
+    subject: 'Live commerce — short pack from ClickClick',
+  },
+  {
+    id: 'cl-brochure',
+    brandId: 'clocal',
+    name: 'Brochure',
+    blurb: 'CLocal for local businesses',
+    subject: 'CLocal — overview for you',
+  },
+  {
+    id: 'cl-info',
+    brandId: 'clocal',
+    name: 'Info kit',
+    blurb: 'Pulses, rewards, and getting started',
+    subject: 'CLocal info kit',
+  },
 ]
 
 export const PAY_TYPES: { id: PayType; label: string; hint: string }[] = [

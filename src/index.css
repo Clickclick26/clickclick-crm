@@ -819,6 +819,136 @@ button {
   margin-bottom: 14px;
 }
 
+.deal-status-chip {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--mid);
+  background: var(--surface-soft);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.deal-track {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 14px 0 16px;
+}
+
+.deal-track-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--surface-soft);
+  border: 2px solid transparent;
+}
+
+.deal-track-card strong {
+  display: block;
+  font-size: 0.95rem;
+  line-height: 1.25;
+  margin: 2px 0 4px;
+}
+
+.deal-track-card span {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--mid);
+  line-height: 1.35;
+}
+
+.deal-track-kicker {
+  margin: 0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--light);
+}
+
+.deal-track-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  color: var(--mid);
+}
+
+.deal-track-card.todo .deal-track-icon {
+  color: var(--mid);
+}
+
+.deal-track-card.waiting {
+  background: rgba(123, 94, 167, 0.08);
+  border-color: rgba(123, 94, 167, 0.35);
+}
+
+.deal-track-card.waiting .deal-track-icon {
+  color: var(--purple);
+  background: rgba(123, 94, 167, 0.12);
+}
+
+.deal-track-card.waiting strong {
+  color: var(--purple);
+}
+
+.deal-track-card.done {
+  background: rgba(0, 188, 212, 0.1);
+  border-color: rgba(0, 188, 212, 0.45);
+}
+
+.deal-track-card.done .deal-track-icon {
+  color: var(--turquoise-deep);
+  background: rgba(0, 188, 212, 0.16);
+}
+
+.deal-track-card.done strong {
+  color: var(--turquoise-deep);
+}
+
+.deal-track.all-done .deal-track-card.done {
+  background: rgba(0, 188, 212, 0.14);
+}
+
+.deal-complete-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  margin: 0 0 16px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(0, 188, 212, 0.16), rgba(123, 94, 167, 0.14));
+  color: var(--turquoise-deep);
+}
+
+.deal-complete-banner strong {
+  display: block;
+  font-size: 0.9rem;
+}
+
+.deal-complete-banner span {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--mid);
+}
+
+.badge.deal-ok {
+  background: rgba(0, 188, 212, 0.16);
+  color: var(--turquoise-deep);
+  font-weight: 600;
+}
+
+.badge.deal-wait {
+  background: rgba(123, 94, 167, 0.14);
+  color: var(--purple);
+  font-weight: 600;
+}
+
 .deal-label {
   margin: 0 0 8px;
   font-size: 0.68rem;
@@ -872,6 +1002,20 @@ button {
 .package-tile.active {
   background: #fff;
   box-shadow: 0 0 0 2px rgba(0, 188, 212, 0.35), var(--shadow-soft);
+}
+
+.package-tile.active strong {
+  color: var(--turquoise-deep);
+}
+
+.kit-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 1100px) {
+  .kit-grid {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 .deal-fields {
@@ -939,6 +1083,33 @@ button {
   flex-wrap: wrap;
 }
 
+.channel-card .outcome-btn {
+  display: inline-flex;
+  align-items: center;
+}
+
+.lark-meet-row {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: var(--surface-soft);
+  display: grid;
+  gap: 8px;
+}
+
+.lark-meet-row strong {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--light);
+}
+
+.lark-meet-row code {
+  font-size: 0.78rem;
+  color: var(--turquoise-deep);
+  word-break: break-all;
+}
+
 .from-number-card .from-active {
   display: flex;
   flex-direction: column;
@@ -1000,6 +1171,53 @@ button {
 
 .from-number-chip.active strong {
   color: var(--turquoise-deep);
+}
+
+.pay-confetti {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: transparent;
+}
+
+.pay-confetti-lottie {
+  width: min(100vw, 1200px);
+  height: min(100vh, 780px);
+  background: transparent !important;
+}
+
+.pay-confetti canvas,
+.pay-confetti svg {
+  background: transparent !important;
+}
+
+.pay-confetti-fallback {
+  background:
+    radial-gradient(circle at 20% 30%, #e83e8c 0 6px, transparent 7px),
+    radial-gradient(circle at 70% 25%, #00bcd4 0 5px, transparent 6px),
+    radial-gradient(circle at 40% 60%, #7b5ea7 0 7px, transparent 8px),
+    radial-gradient(circle at 80% 55%, #ffd54f 0 5px, transparent 6px),
+    radial-gradient(circle at 55% 40%, #e83e8c 0 4px, transparent 5px),
+    radial-gradient(circle at 30% 75%, #00bcd4 0 6px, transparent 7px);
+  animation: pay-confetti-pop 1.2s ease-out both;
+}
+
+@keyframes pay-confetti-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  30% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.1);
+  }
 }
 
 .pipeline-view {
@@ -1337,6 +1555,64 @@ button {
   color: var(--light);
 }
 
+.silent-tag {
+  color: var(--pink);
+  font-weight: 600;
+}
+
+.coaching-block {
+  display: grid;
+  gap: 12px;
+}
+
+.coaching-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.coaching-meta strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.feedback-box {
+  display: grid;
+  gap: 10px;
+}
+
+.feedback-chip {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--surface-soft);
+  display: grid;
+  gap: 4px;
+}
+
+.feedback-chip strong {
+  font-size: 0.82rem;
+}
+
+.feedback-chip span {
+  font-size: 0.7rem;
+  color: var(--light);
+}
+
+.feedback-chip p {
+  margin: 6px 0 0;
+  font-size: 0.84rem;
+  color: var(--mid);
+  line-height: 1.45;
+}
+
+.coaching-file-list {
+  display: grid;
+  gap: 10px;
+}
+
 @media (max-width: 1100px) {
   .shell {
     grid-template-columns: 68px 250px minmax(0, 1fr);
@@ -1346,6 +1622,9 @@ button {
   }
   .reports-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .coaching-meta {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1378,4 +1657,66 @@ button {
   .admin-bar {
     border-radius: var(--radius-lg);
   }
+}
+
+/* Auth (sign in / sign up) — additive only, same tokens as the rest of the app. */
+.auth-screen {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 32px 28px;
+}
+
+.auth-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.auth-input {
+  width: 100%;
+  border: none;
+  border-radius: 18px;
+  padding: 12px 14px;
+  background: var(--surface-soft);
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.auth-form .btn.primary {
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.auth-error {
+  color: var(--pink);
+  font-size: 0.76rem;
+  font-weight: 500;
+  text-align: left;
+}
+
+.auth-hint {
+  font-size: 0.82rem;
+  color: var(--mid);
+  line-height: 1.5;
+}
+
+.auth-switch {
+  margin-top: 16px;
+  font-size: 0.76rem;
+  color: var(--mid);
+  text-decoration: underline;
 }

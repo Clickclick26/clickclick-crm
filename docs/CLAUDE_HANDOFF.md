@@ -79,12 +79,20 @@ When pipeline/lists/reports/settings: main gets `.wide` (spans empty list column
 ## Feature inventory (all must survive backend)
 
 ### Softphone / dialer
-- Call / End, mute, record toggle
-- Admin listen-in + force record (when another agent is live)
-- Call outcomes: sold, callback, no answer, not interested, do not call, wrong number
-- DNC blocks outbound
-- Quiet hours shown (enforce later)
-- Consent / recording notice (legal) when going live
+- Call / End, mute
+- **Channel picker:** Phone dialer (Telnyx) **or Lark video** (Lark VC live meeting)
+- Lark video: start meeting → guest link → email via Lark; easy when client wants face-to-face
+- Phone: Telnyx numbers + auto/manual from-number
+- **Every connected call is always recorded** (phone + enable Lark meeting record when available)
+- Admin **Listen live (silent)** on phone legs: admin hears; agent cannot hear admin
+- Call outcomes, DNC, quiet hours, consent line
+
+### Call coaching / replay
+- Admin can **replay** any saved recording later
+- UI shows **salesperson name**, **customer name**, company, when
+- Admin writes **feedback** → saved to that salesperson’s **coaching file** (with customer name on the note)
+- Admin → Settings → **Coaching** tab lists files per agent
+- Agents should later be able to read their own coaching file (MVP: admin writes; agent read optional)
 
 ### Calling from (caller ID)
 - Show outbound number on screen
@@ -99,6 +107,12 @@ When pipeline/lists/reports/settings: main gets `.wide` (spans empty list column
 - Objection buttons swap reply text
 - **Admin → Scripts**: edit for Everyone (bulk) or one agent; Apply to all
 - Dialer uses agent override if present, else default
+
+### Warm-up / brochure
+- On dialer: **Warm-up pack** card — pick brand (ClickClick / CLocal) → one-tap **Brochure**, **Info kit**, or brand-specific packs
+- Sends via Lark Mail (fills email composer + send mock)
+- For generic “warming them up about ClickClick” calls before a hard pitch
+- Admin later: upload PDF assets per kit in storage; link in email
 
 ### Notes + contact facts
 - Notes editable on screen
@@ -122,8 +136,7 @@ When pipeline/lists/reports/settings: main gets `.wide` (spans empty list column
 - Actions (mocked today):
   - Generate & send contract (Lark email + e-sign link → signed PDF to secure storage)
   - Send Stripe / DD pay link
-  - Log sale for commission
-- Status flow: draft → contract_sent → signed → pay_sent → deposit_paid / active / closed
+- **No “commission” wording / no “That’s a win” button.** Hitting **Send Stripe pay link** (or Direct Debit) fires **confetti**. When payment clears (webhook), auto-credit the agent quietly (“on your board” toast).
 
 ### Admin → Contracts
 - Templates per brand + pay type
@@ -190,7 +203,8 @@ Keep field names close to `src/data/mock.ts` types.
 - **agents** — id, name, role, personal_number_id, online
 - **outbound_numbers** — id, label, e164, brand_id, region, kind (personal|local|main), agent_id?
 - **contacts** — + region, stage, owner_id, dnc, quiet_hours, notes, tags, source
-- **calls** — contact_id, from_number_id, status, outcome, recording_url, agent_id, duration
+- **calls** — contact_id, from_number_id, status, outcome, recording_url (always for connected), agent_id, duration
+- **call_feedback** — call_id, agent_id, contact_name, company, admin_id, note, created_at (coaching file)
 - **scripts** — scope everyone|agent_id, title, body
 - **objections** — label, reply (optional per brand later)
 - **packages** — brand_id, name, prices
@@ -212,7 +226,8 @@ Keep field names close to `src/data/mock.ts` types.
 1. Brand + packages + pay type + fields  
 2. Send contract (template fill → e-sign → Lark email)  
 3. Client signs → webhook → store PDF private + status signed  
-4. Send pay/DD link → webhook → update deal + commission eligibility  
+4. Send pay/DD link → webhook → update deal + **auto** commission credit for the agent  
+   (never ask staff to “log commission” manually)
 
 ### Admin
 - Edit scripts per user or bulk  
@@ -225,15 +240,16 @@ Keep field names close to `src/data/mock.ts` types.
 
 | UI action | Hook later |
 |-----------|------------|
-| Call / End / mute / record | `lib/phone` |
-| Calling from auto/manual | Telnyx caller ID = selected e164 |
+| Call / End / mute / record | `lib/phone` (Telnyx) |
+| Lark video start / invite | `lib/lark` VC reserve + mail invite link |
+| Calling from auto/manual | Telnyx caller ID = selected e164 (phone channel only) |
 | Notes blur | PATCH contact |
 | Pipeline move | PATCH contact.stage |
 | Save script / template | Admin APIs |
 | Generate & send contract | contracts + lark + esign |
-| Send Stripe / DD link | payments + lark |
-| Log sale for commission | deals + commission_events |
-| Lark email buttons | lark |
+| Send Stripe / DD link | payments + lark → on paid webhook, auto commission_events |
+| (removed) manual log sale | do not add this back |
+| Warm-up brochure / info kit | `lib/lark` mail + asset links from storage |
 | Reports | aggregate calls/deals |
 
 Toasts today are mocks — replace with real success/error states without changing toast look much.

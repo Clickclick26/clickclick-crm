@@ -1,4 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
+import LottieImport from 'lottie-react'
+import confettiAnimation from './assets/confetti.json'
+
+// Vite ESM interop: default export is often `{ default: Component }`.
+const Lottie =
+  typeof LottieImport === 'function'
+    ? LottieImport
+    : ((LottieImport as { default?: unknown }).default as typeof LottieImport)
 import {
   Phone,
   Clock3,
@@ -23,16 +31,19 @@ import {
   Columns3,
   ChevronLeft,
   ChevronRight,
+  Play,
+  VolumeX,
+  Video,
+  CheckCircle2,
 } from 'lucide-react'
 import {
-  AGENTS,
   BRANDS,
   CALLS,
   CONTACTS,
   CONTRACT_TEMPLATES,
-  CURRENT_USER,
   DEAL_STATUS_LABEL,
   DIALER_LISTS,
+  INFO_KITS,
   OBJECTIONS,
   OUTCOME_LABEL,
   OUTBOUND_NUMBERS,
@@ -40,11 +51,14 @@ import {
   PAY_TYPES,
   REGION_LABEL,
   SCRIPT,
+  SEED_CALL_FEEDBACK,
   STAGE_LABEL,
   contactById as contactByIdStatic,
   fillScript,
   pickBestOutboundNumber,
+  type Agent,
   type BrandId,
+  type CallFeedback,
   type CallOutcome,
   type CallRecord,
   type Contact,
@@ -53,6 +67,8 @@ import {
   type PayType,
   type PipelineStage,
 } from './data/mock'
+import { fetchAgents } from './lib/supabase/agents'
+import { fetchContacts, updateContactNotes, updateContactStage } from './lib/supabase/contacts'
 
 type NavId =
   | 'dialer'
@@ -79,7 +95,86 @@ function formatDuration(sec: number) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
-export default function App() {
+/** Big obvious deal checklist states from the mock deal status. */
+function dealChecklist(status: DealStatus, payType: PayType) {
+  const contractDone = !['draft', 'contract_sent'].includes(status)
+  const contractWaiting = status === 'contract_sent'
+  const payDone = ['deposit_paid', 'active', 'closed'].includes(status)
+  const payWaiting = status === 'pay_sent'
+
+  let contractTitle = 'Contract not sent'
+  let contractDetail = 'Generate & send so they can sign'
+  if (contractWaiting) {
+    contractTitle = 'Contract sent'
+    contractDetail = 'Waiting for them to sign'
+  } else if (contractDone) {
+    contractTitle = 'Contract signed'
+    contractDetail = 'Signed and filed'
+  }
+
+  let payTitle = 'Payment not sent'
+  let payDetail = 'Send Stripe / Direct Debit when ready'
+  if (payWaiting) {
+    payTitle = 'Pay link sent'
+    payDetail = 'Waiting for them to pay'
+  } else if (status === 'deposit_paid') {
+    payTitle = 'Deposit paid'
+    payDetail = 'Money received'
+  } else if (status === 'active') {
+    payTitle = payType === 'direct_debit' ? 'Direct Debit live' : 'Subscription live'
+    payDetail = 'First payment confirmed'
+  } else if (status === 'closed') {
+    payTitle = 'Paid in full'
+    payDetail = 'One-off payment confirmed'
+  }
+
+  return {
+    contractDone,
+    contractWaiting,
+    payDone,
+    payWaiting,
+    contractTitle,
+    contractDetail,
+    payTitle,
+    payDetail,
+    allDone: contractDone && payDone,
+  }
+}
+
+function PayConfettiBurst() {
+  if (typeof Lottie !== 'function') {
+    return <div className="pay-confetti pay-confetti-fallback" aria-hidden />
+  }
+
+  return (
+    <div className="pay-confetti" aria-hidden>
+      <Lottie
+        animationData={confettiAnimation}
+        loop={false}
+        autoplay
+        // Canvas avoids black flashes some SVG/3D Lottie files cause in the browser.
+        {...({
+          renderer: 'canvas',
+          rendererSettings: {
+            clearCanvas: true,
+            preserveAspectRatio: 'xMidYMid meet',
+          },
+        } as object)}
+        className="pay-confetti-lottie"
+        style={{ background: 'transparent' }}
+      />
+    </div>
+  )
+}
+
+export default function App({
+  currentAgent,
+  onSignOut,
+}: {
+  currentAgent: Agent
+  onSignOut: () => void
+}) {
+  const [agents, setAgents] = useState<Agent[]>([currentAgent])
   const [nav, setNav] = useState<NavId>('recents')
   const [filter, setFilter] = useState<'all' | 'missed'>('all')
   const [query, setQuery] = useState('')
@@ -120,10 +215,33 @@ export default function App() {
   const [selectedTemplateId, setSelectedTemplateId] = useState(CONTRACT_TEMPLATES[0].id)
   const [editTemplateBody, setEditTemplateBody] = useState(CONTRACT_TEMPLATES[0].body)
   const [editTemplateName, setEditTemplateName] = useState(CONTRACT_TEMPLATES[0].name)
-  const [settingsTab, setSettingsTab] = useState<'scripts' | 'contracts' | 'connect'>('scripts')
+  const [settingsTab, setSettingsTab] = useState<
+    'scripts' | 'contracts' | 'coaching' | 'connect'
+  >('scripts')
   const [fromMode, setFromMode] = useState<'auto' | 'manual'>('auto')
   const [manualFromId, setManualFromId] = useState<string | null>(null)
   const [contacts, setContacts] = useState<Contact[]>(CONTACTS)
+  const [payConfetti, setPayConfetti] = useState(false)
+  const [callFeedback, setCallFeedback] = useState<CallFeedback[]>(SEED_CALL_FEEDBACK)
+  const [feedbackDraft, setFeedbackDraft] = useState('')
+  const [playingCallId, setPlayingCallId] = useState<string | null>(null)
+  const [coachingAgentFilter, setCoachingAgentFilter] = useState<string>('all')
+  const [callChannel, setCallChannel] = useState<'phone' | 'lark_video'>('phone')
+  const [larkMeetingUrl, setLarkMeetingUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchAgents()
+      .then(setAgents)
+      .catch((err) => console.error('Failed to load agents', err))
+  }, [])
+
+  useEffect(() => {
+    fetchContacts(agents)
+      .then(setContacts)
+      .catch((err) => console.error('Failed to load contacts', err))
+    // Re-fetch once the real team list lands so contact.owner names resolve correctly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agents.length])
 
   function contactById(id: string) {
     return contacts.find((c) => c.id === id) ?? contactByIdStatic(id)
@@ -133,7 +251,7 @@ export default function App() {
   const contact =
     contactById(selectedContactId) ?? contactById(selectedCall.contactId) ?? CONTACTS[0]
 
-  const liveAgent = AGENTS.find((a) => a.onCallWith)
+  const liveAgent = agents.find((a) => a.onCallWith)
 
   const brandPackages = useMemo(
     () => PACKAGES.filter((p) => p.brandId === dealBrand),
@@ -145,7 +263,7 @@ export default function App() {
       pickBestOutboundNumber({
         contact,
         brandId: dealBrand,
-        agent: CURRENT_USER,
+        agent: currentAgent,
         mode: fromMode,
         manualNumberId: manualFromId,
       }),
@@ -153,7 +271,7 @@ export default function App() {
   )
 
   const selectableFromNumbers = useMemo(() => {
-    const mine = OUTBOUND_NUMBERS.filter((n) => n.agentId === CURRENT_USER.id)
+    const mine = OUTBOUND_NUMBERS.filter((n) => n.agentId === currentAgent.id)
     const brandLines = OUTBOUND_NUMBERS.filter(
       (n) => n.brandId === dealBrand && n.kind !== 'personal',
     )
@@ -178,6 +296,7 @@ export default function App() {
     setMonthlyAmount(String(first.defaultMonthly ?? Math.round(first.defaultPrice / 5)))
     setDepositAmount(String(Math.round(first.defaultPrice * 0.3)))
     setDealStatus('draft')
+    setPayConfetti(false)
   }, [dealBrand])
 
   function togglePackage(id: string) {
@@ -195,16 +314,46 @@ export default function App() {
     })
   }
 
+  function burstPayConfetti() {
+    setPayConfetti(false)
+    window.setTimeout(() => {
+      setPayConfetti(true)
+      window.setTimeout(() => setPayConfetti(false), 4200)
+    }, 0)
+  }
+
+  function celebrateSale(kind: 'deposit' | 'monthly' | 'one_off' | 'direct_debit') {
+    setOutcome('sold')
+    if (contact) {
+      setContacts((prev) =>
+        prev.map((c) => (c.id === contact.id ? { ...c, stage: 'won' as const } : c)),
+      )
+    }
+    const first = currentAgent.name.split(' ')[0]
+    const lines: Record<typeof kind, string> = {
+      deposit: `Nice one, ${first} — deposit’s on your board.`,
+      monthly: `Nice one, ${first} — monthly deal’s on your board.`,
+      one_off: `Nice one, ${first} — paid in full, on your board.`,
+      direct_debit: `Nice one, ${first} — Direct Debit live, on your board.`,
+    }
+    showToast(lines[kind])
+  }
+
   function sendContract() {
     if (!selectedPackages.length) {
       showToast('Pick at least one package.')
       return
     }
     setDealStatus('contract_sent')
-    showToast('Contract emailed via Lark · sign link included (mock).')
+    if (contact && (contact.stage === 'new' || contact.stage === 'talking')) {
+      setContacts((prev) =>
+        prev.map((c) => (c.id === contact.id ? { ...c, stage: 'proposal' } : c)),
+      )
+    }
+    showToast('Contract on its way — they’ll sign on their phone.')
     window.setTimeout(() => {
       setDealStatus('signed')
-      showToast('Signed! PDF saved to secure storage (mock).')
+      showToast('Signed and filed. Send pay when you’re ready.')
     }, 1600)
   }
 
@@ -212,32 +361,40 @@ export default function App() {
     if (dealStatus === 'draft' || dealStatus === 'contract_sent') {
       showToast('Get the contract signed first (or send both).')
     }
+    burstPayConfetti()
     if (payType === 'direct_debit') {
       setDealStatus('pay_sent')
-      showToast('GoCardless Direct Debit link sent by Lark (mock).')
+      showToast('Direct Debit link sent — waiting for them to confirm.')
+      window.setTimeout(() => {
+        setDealStatus('active')
+        celebrateSale('direct_debit')
+      }, 1400)
       return
     }
     if (payType === 'deposit') {
       setDealStatus('pay_sent')
-      showToast(`Stripe deposit link £${depositAmount} sent (mock).`)
-      window.setTimeout(() => setDealStatus('deposit_paid'), 1400)
+      showToast(`Deposit link (£${depositAmount}) sent.`)
+      window.setTimeout(() => {
+        setDealStatus('deposit_paid')
+        celebrateSale('deposit')
+      }, 1400)
       return
     }
     if (payType === 'monthly') {
       setDealStatus('pay_sent')
-      showToast(`Stripe monthly £${monthlyAmount}/mo link sent (mock).`)
-      window.setTimeout(() => setDealStatus('active'), 1400)
+      showToast(`Monthly link (£${monthlyAmount}/mo) sent.`)
+      window.setTimeout(() => {
+        setDealStatus('active')
+        celebrateSale('monthly')
+      }, 1400)
       return
     }
     setDealStatus('pay_sent')
-    showToast(`Stripe one-off £${totalPrice} link sent (mock).`)
-    window.setTimeout(() => setDealStatus('closed'), 1400)
-  }
-
-  function markCommissionReady() {
-    setDealStatus('closed')
-    setOutcome('sold')
-    showToast(`Sale logged for ${CURRENT_USER.name} · commission record saved (mock).`)
+    showToast(`Pay link (£${totalPrice}) sent.`)
+    window.setTimeout(() => {
+      setDealStatus('closed')
+      celebrateSale('one_off')
+    }, 1400)
   }
 
   const filteredCalls = useMemo(() => {
@@ -265,17 +422,19 @@ export default function App() {
   }, [contacts])
 
   const activeScript = useMemo(() => {
-    const override = agentScripts[CURRENT_USER.id]
+    const override = agentScripts[currentAgent.id]
     if (override) return override
     return { title: defaultScriptTitle, body: defaultScriptBody }
   }, [agentScripts, defaultScriptBody, defaultScriptTitle])
+
+  const dealTrack = dealChecklist(dealStatus, payType)
 
   const scriptText = useMemo(() => {
     if (activeObjection) {
       const obj = OBJECTIONS.find((o) => o.id === activeObjection)
       return obj?.reply ?? ''
     }
-    return fillScript(activeScript.body, contact, CURRENT_USER.name)
+    return fillScript(activeScript.body, contact, currentAgent.name)
   }, [activeObjection, activeScript.body, contact])
 
   const selectedTemplate =
@@ -304,7 +463,7 @@ export default function App() {
       ...prev,
       [scriptScope]: { title: editScriptTitle, body: editScriptBody },
     }))
-    const agent = AGENTS.find((a) => a.id === scriptScope)
+    const agent = agents.find((a) => a.id === scriptScope)
     showToast(`Script saved for ${agent?.name ?? 'agent'} only.`)
   }
 
@@ -347,11 +506,13 @@ export default function App() {
     if (person) {
       setNotes(person.notes)
       setEmailBody(
-        `Hi ${person.name.split(' ')[0]},\n\nGreat speaking — here’s a short follow-up from ClickClick.\n\nBest,\n${CURRENT_USER.name}`,
+        `Hi ${person.name.split(' ')[0]},\n\nGreat speaking — here’s a short follow-up from ClickClick.\n\nBest,\n${currentAgent.name}`,
       )
     }
     setActiveObjection(null)
     setOutcome(call.outcome ?? null)
+    setFeedbackDraft('')
+    setPlayingCallId(null)
     setNav('recents')
   }
 
@@ -359,7 +520,7 @@ export default function App() {
     setSelectedContactId(person.id)
     setNotes(person.notes)
     setEmailBody(
-      `Hi ${person.name.split(' ')[0]},\n\nGreat speaking — here’s a short follow-up from ClickClick.\n\nBest,\n${CURRENT_USER.name}`,
+      `Hi ${person.name.split(' ')[0]},\n\nGreat speaking — here’s a short follow-up from ClickClick.\n\nBest,\n${currentAgent.name}`,
     )
     setActiveObjection(null)
     const related = CALLS.find((c) => c.contactId === person.id)
@@ -375,26 +536,98 @@ export default function App() {
       showToast('This number is on Do Not Call. Call blocked.')
       return
     }
+    if (callChannel === 'lark_video') {
+      startLarkVideo()
+      return
+    }
+    setOnCall(true)
+    setRecording(true) // always on — every call is recorded
+    setMuted(false)
+    setActiveObjection(null)
+    showToast(
+      `Calling from ${fromPick.number.display} · recording on · ${fromPick.reason}`,
+    )
+  }
+
+  function startLarkVideo() {
+    // Real: Lark VC API reserve/apply → meeting url → email/SMS guest link via Lark
+    const mockUrl = `https://vc.larksuite.com/j/demo-${contact.id}`
+    setLarkMeetingUrl(mockUrl)
     setOnCall(true)
     setRecording(true)
     setActiveObjection(null)
-    showToast(
-      `Calling from ${fromPick.number.display} · ${fromPick.reason}`,
-    )
+    showToast(`Lark video ready · invite sent to ${contact.name} (mock)`)
   }
 
   function endCall() {
     setOnCall(false)
     setMuted(false)
-    showToast(outcome ? `Call ended · marked ${OUTCOME_LABEL[outcome]}` : 'Call ended')
+    setRecording(false)
+    setLarkMeetingUrl(null)
+    showToast(
+      outcome
+        ? `Call ended · recorded · marked ${OUTCOME_LABEL[outcome]}`
+        : callChannel === 'lark_video'
+          ? 'Lark video ended · recording saved if enabled'
+          : 'Call ended · recording saved',
+    )
+  }
+
+  function saveCallFeedback() {
+    if (!feedbackDraft.trim()) {
+      showToast('Add a note before saving feedback.')
+      return
+    }
+    const agent =
+      agents.find((a) => a.name === selectedCall.agent) ??
+      agents.find((a) => a.id === selectedCall.agentId)
+    const entry: CallFeedback = {
+      id: `fb-${Date.now()}`,
+      callId: selectedCall.id,
+      agentId: selectedCall.agentId ?? agent?.id ?? 'u1',
+      agentName: selectedCall.agent,
+      contactName: contact.name,
+      company: contact.company,
+      when: selectedCall.when,
+      adminName: currentAgent.name,
+      note: feedbackDraft.trim(),
+      createdAt: new Date().toLocaleString('en-GB'),
+    }
+    setCallFeedback((prev) => [entry, ...prev])
+    setFeedbackDraft('')
+    showToast(`Saved to ${entry.agentName}’s coaching file.`)
+  }
+
+  function toggleSilentListen() {
+    setListeningIn((v) => {
+      const next = !v
+      showToast(
+        next
+          ? 'Silent listen on — you hear them; they can’t hear you.'
+          : 'Stopped silent listen',
+      )
+      return next
+    })
   }
 
   function sendLarkEmail() {
     showToast('Email queued via Lark Mail API (connect keys later).')
   }
 
+  function sendInfoKit(kitId: string) {
+    const kit = INFO_KITS.find((k) => k.id === kitId)
+    if (!kit) return
+    const brand = BRANDS.find((b) => b.id === kit.brandId)?.label ?? 'ClickClick'
+    setEmailSubject(kit.subject)
+    setEmailBody(
+      `Hi ${contact.name.split(' ')[0]},\n\nGreat chatting — here’s our ${kit.name.toLowerCase()} from ${brand}.\n\nHappy to walk through it on a quick call or Lark video whenever suits.\n\nBest,\n${currentAgent.name}`,
+    )
+    showToast(`${kit.name} sent to ${contact.email} via Lark (mock)`)
+  }
+
   function moveContactStage(id: string, stage: PipelineStage) {
     setContacts((prev) => prev.map((c) => (c.id === id ? { ...c, stage } : c)))
+    updateContactStage(id, stage).catch((err) => console.error('Failed to save stage', err))
     const person = contacts.find((c) => c.id === id)
     showToast(
       `${person?.name ?? 'Lead'} → ${STAGE_LABEL[stage]}`,
@@ -437,16 +670,16 @@ export default function App() {
             <span className="dot" />
             Ready
           </div>
-          <div className="user-chip">
+          <button className="user-chip" onClick={onSignOut} title="Sign out">
             <img
               src="https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=80&h=80&fit=crop"
               alt=""
             />
             <span>
-              {CURRENT_USER.name}
-              {CURRENT_USER.role === 'admin' ? ' · Admin' : ''}
+              {currentAgent.name}
+              {currentAgent.role === 'admin' ? ' · Admin' : ''}
             </span>
-          </div>
+          </button>
         </div>
       </header>
 
@@ -685,7 +918,7 @@ export default function App() {
                 </div>
                 <div className="stat">
                   <div className="label">Agents online</div>
-                  <div className="value">{AGENTS.filter((a) => a.online).length}</div>
+                  <div className="value">{agents.filter((a) => a.online).length}</div>
                 </div>
               </div>
               <p className="muted" style={{ marginTop: 16 }}>
@@ -714,6 +947,12 @@ export default function App() {
                     Contracts
                   </button>
                   <button
+                    className={`tab ${settingsTab === 'coaching' ? 'active' : ''}`}
+                    onClick={() => setSettingsTab('coaching')}
+                  >
+                    Coaching
+                  </button>
+                  <button
                     className={`tab ${settingsTab === 'connect' ? 'active' : ''}`}
                     onClick={() => setSettingsTab('connect')}
                   >
@@ -740,7 +979,7 @@ export default function App() {
                       >
                         Everyone
                       </button>
-                      {AGENTS.map((a) => (
+                      {agents.map((a) => (
                         <button
                           key={a.id}
                           className={`outcome-btn ${scriptScope === a.id ? 'active' : ''}`}
@@ -855,16 +1094,69 @@ export default function App() {
                 </div>
               )}
 
+              {settingsTab === 'coaching' && (
+                <div className="card" style={{ maxWidth: 820 }}>
+                  <h3>Coaching files</h3>
+                  <p className="muted" style={{ marginTop: 0 }}>
+                    Feedback is saved per salesperson with the customer name on each note.
+                    Replay calls from Recents.
+                  </p>
+                  <div className="outcomes" style={{ marginBottom: 14 }}>
+                    <button
+                      className={`outcome-btn ${coachingAgentFilter === 'all' ? 'active' : ''}`}
+                      onClick={() => setCoachingAgentFilter('all')}
+                    >
+                      Everyone
+                    </button>
+                    {agents.map((a) => (
+                      <button
+                        key={a.id}
+                        className={`outcome-btn ${coachingAgentFilter === a.id ? 'active' : ''}`}
+                        onClick={() => setCoachingAgentFilter(a.id)}
+                      >
+                        {a.name}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="coaching-file-list">
+                    {callFeedback
+                      .filter(
+                        (f) =>
+                          coachingAgentFilter === 'all' ||
+                          f.agentId === coachingAgentFilter,
+                      )
+                      .map((f) => (
+                        <article key={f.id} className="feedback-chip">
+                          <strong>
+                            {f.agentName} · call with {f.contactName}
+                          </strong>
+                          <span>
+                            {f.company} · {f.when} · by {f.adminName} · {f.createdAt}
+                          </span>
+                          <p>{f.note}</p>
+                        </article>
+                      ))}
+                    {callFeedback.filter(
+                      (f) =>
+                        coachingAgentFilter === 'all' ||
+                        f.agentId === coachingAgentFilter,
+                    ).length === 0 && (
+                      <p className="muted">No coaching notes in this file yet.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {settingsTab === 'connect' && (
                 <div className="card" style={{ maxWidth: 520 }}>
                   <h3>Connect later</h3>
                   <ul className="muted" style={{ lineHeight: 1.7, paddingLeft: 18 }}>
-                    <li>Telnyx — numbers, dial, record, listen-in</li>
-                    <li>Lark Suite — Mail send + chat notes</li>
+                    <li>Telnyx — phone dial, always-record, silent listen-in</li>
+                    <li>Lark Suite — Mail, chat, <strong>video meetings (VC)</strong></li>
                     <li>Stripe — one-off, deposit, monthly links</li>
                     <li>GoCardless — UK Direct Debit</li>
                     <li>E-sign + secure storage — signed contracts</li>
-                    <li>Supabase — people, notes, deals, commission</li>
+                    <li>Supabase — people, notes, deals, coaching files, recordings</li>
                   </ul>
                 </div>
               )}
@@ -879,45 +1171,35 @@ export default function App() {
                 </div>
                 <div className="pill">
                   <Shield size={14} />
-                  {CURRENT_USER.role === 'admin' ? 'Admin' : 'Agent'}
+                  {currentAgent.role === 'admin' ? 'Admin' : 'Agent'}
                 </div>
               </div>
 
               <div className="main-scroll">
-                {CURRENT_USER.role === 'admin' && liveAgent?.onCallWith && (
+                {currentAgent.role === 'admin' && liveAgent?.onCallWith && (
                   <div className="card admin-bar">
                     <div className="admin-live">
                       <span className="live-dot" />
                       <div>
                         <strong>{liveAgent.name}</strong> is live with{' '}
                         {contactById(liveAgent.onCallWith)?.name ?? 'a lead'}
+                        {listeningIn && (
+                          <span className="silent-tag"> · silent listen</span>
+                        )}
                       </div>
                     </div>
                     <div className="btn-row">
                       <button
-                        className="btn ghost"
-                        onClick={() => {
-                          setListeningIn((v) => !v)
-                          showToast(
-                            listeningIn
-                              ? 'Stopped listen-in'
-                              : 'Listening in (whisper/barge later with Twilio)',
-                          )
-                        }}
+                        className={`btn ${listeningIn ? 'primary' : 'ghost'}`}
+                        onClick={toggleSilentListen}
                       >
-                        <Headphones size={16} />
-                        {listeningIn ? 'Stop listen-in' : 'Listen live'}
-                      </button>
-                      <button
-                        className="btn ghost"
-                        onClick={() =>
-                          showToast('Admin recording flagged for this live call.')
-                        }
-                      >
-                        <CircleDot size={16} />
-                        Force record
+                        {listeningIn ? <VolumeX size={16} /> : <Headphones size={16} />}
+                        {listeningIn ? 'Stop silent listen' : 'Listen live (silent)'}
                       </button>
                     </div>
+                    <p className="muted" style={{ margin: '8px 0 0', width: '100%' }}>
+                      You’re muted to them — they won’t hear you join. Call is already recording.
+                    </p>
                   </div>
                 )}
 
@@ -936,6 +1218,28 @@ export default function App() {
                       <span className="badge">Owner: {contact.owner}</span>
                       <span className="badge">Source: {contact.source}</span>
                       <span className="badge">Area: {REGION_LABEL[contact.region]}</span>
+                      {dealTrack.contractDone ? (
+                        <span className="badge deal-ok">
+                          <CheckCircle2 size={10} style={{ marginRight: 4 }} />
+                          Contract signed
+                        </span>
+                      ) : dealTrack.contractWaiting ? (
+                        <span className="badge deal-wait">
+                          <Clock3 size={10} style={{ marginRight: 4 }} />
+                          Awaiting signature
+                        </span>
+                      ) : null}
+                      {dealTrack.payDone ? (
+                        <span className="badge deal-ok">
+                          <CheckCircle2 size={10} style={{ marginRight: 4 }} />
+                          {dealTrack.payTitle}
+                        </span>
+                      ) : dealTrack.payWaiting ? (
+                        <span className="badge deal-wait">
+                          <Clock3 size={10} style={{ marginRight: 4 }} />
+                          Awaiting payment
+                        </span>
+                      ) : null}
                       {contact.doNotCall && (
                         <span className="badge dnc">
                           <Ban size={10} style={{ marginRight: 4 }} />
@@ -977,13 +1281,12 @@ export default function App() {
                     </button>
                     <button
                       className="round-btn"
-                      title={recording ? 'Recording on' : 'Start recording'}
-                      onClick={() => {
-                        setRecording((r) => !r)
-                        showToast(recording ? 'Recording stopped' : 'Recording started')
-                      }}
+                      title="Every call is recorded"
+                      onClick={() =>
+                        showToast('Recording is always on for every call.')
+                      }
                     >
-                      <CircleDot size={18} color={recording ? '#e83e8c' : undefined} />
+                      <CircleDot size={18} color={onCall || recording ? '#e83e8c' : undefined} />
                     </button>
                     {onCall ? (
                       <button className="call-btn hangup" onClick={endCall}>
@@ -996,13 +1299,75 @@ export default function App() {
                         onClick={startCall}
                         disabled={contact.doNotCall}
                       >
-                        <PhoneCall size={18} />
-                        Call
+                        {callChannel === 'lark_video' ? (
+                          <Video size={18} />
+                        ) : (
+                          <PhoneCall size={18} />
+                        )}
+                        {callChannel === 'lark_video' ? 'Video' : 'Call'}
                       </button>
                     )}
                   </div>
                 </div>
 
+                <div className="card channel-card">
+                  <div className="script-title">
+                    <h3 style={{ margin: 0 }}>How to reach them</h3>
+                    <span>{callChannel === 'lark_video' ? 'Lark video' : 'Phone'}</span>
+                  </div>
+                  <div className="outcomes">
+                    <button
+                      className={`outcome-btn ${callChannel === 'phone' ? 'active' : ''}`}
+                      onClick={() => {
+                        setCallChannel('phone')
+                        setLarkMeetingUrl(null)
+                      }}
+                    >
+                      <Phone size={14} style={{ marginRight: 6 }} />
+                      Phone dialer
+                    </button>
+                    <button
+                      className={`outcome-btn ${callChannel === 'lark_video' ? 'active' : ''}`}
+                      onClick={() => setCallChannel('lark_video')}
+                    >
+                      <Video size={14} style={{ marginRight: 6 }} />
+                      Lark video
+                    </button>
+                  </div>
+                  <p className="muted deal-hint">
+                    {callChannel === 'lark_video'
+                      ? 'Uses Lark’s live meeting — easy when they want face-to-face. Link can go by Lark email.'
+                      : 'Uses your Telnyx numbers · auto local caller ID.'}
+                  </p>
+                  {larkMeetingUrl && onCall && callChannel === 'lark_video' && (
+                    <div className="lark-meet-row">
+                      <strong>Meeting link</strong>
+                      <code>{larkMeetingUrl}</code>
+                      <div className="btn-row">
+                        <button
+                          className="btn lark"
+                          onClick={() =>
+                            showToast('Meeting link emailed via Lark (mock).')
+                          }
+                        >
+                          <Mail size={16} />
+                          Email link again
+                        </button>
+                        <button
+                          className="btn ghost"
+                          onClick={() => {
+                            void navigator.clipboard?.writeText(larkMeetingUrl)
+                            showToast('Link copied.')
+                          }}
+                        >
+                          Copy link
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {callChannel === 'phone' && (
                 <div className="card from-number-card">
                   <div className="script-title">
                     <h3 style={{ margin: 0 }}>Calling from</h3>
@@ -1055,15 +1420,22 @@ export default function App() {
                     })}
                   </div>
                 </div>
+                )}
 
                 {onCall && (
                   <div className="on-call-banner">
                     <div>
-                      On call with <strong>{contact.name}</strong>
+                      {callChannel === 'lark_video' ? 'On Lark video with' : 'On call with'}{' '}
+                      <strong>{contact.name}</strong>
                       {muted ? ' · muted' : ''}
                       {recording ? ' · recording' : ''}
-                      {' · from '}
-                      <strong>{fromPick.number.display}</strong>
+                      {callChannel === 'phone' && (
+                        <>
+                          {' · from '}
+                          <strong>{fromPick.number.display}</strong>
+                        </>
+                      )}
+                      {callChannel === 'lark_video' && ' · Lark live meeting'}
                     </div>
                     <div className="muted">Quiet hours: {contact.quietHours}</div>
                   </div>
@@ -1118,7 +1490,15 @@ export default function App() {
                       className="notes-box"
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
-                      onBlur={() => showToast('Notes saved (local mock).')}
+                      onBlur={() => {
+                        setContacts((prev) =>
+                          prev.map((c) => (c.id === contact.id ? { ...c, notes } : c)),
+                        )
+                        updateContactNotes(contact.id, notes).catch((err) =>
+                          console.error('Failed to save notes', err),
+                        )
+                        showToast('Notes saved.')
+                      }}
                     />
                   </div>
                 </div>
@@ -1143,27 +1523,122 @@ export default function App() {
                       ))}
                     </div>
 
-                    <h3 style={{ marginTop: 18 }}>Last recording</h3>
+                    <h3 style={{ marginTop: 18 }}>Call recording</h3>
+                    <p className="muted" style={{ marginTop: 0 }}>
+                      Every call is recorded. Admins can replay and coach later.
+                    </p>
                     {selectedCall.recordingUrl && selectedCall.durationSec ? (
-                      <div className="recording">
-                        <button
-                          className="round-btn"
-                          onClick={() => showToast('Playback mock — real audio via Twilio.')}
-                        >
-                          <PhoneCall size={16} />
-                        </button>
-                        <div className="wave" aria-hidden>
-                          {WAVE.map((h, i) => (
-                            <i key={i} style={{ ['--h' as string]: `${h}%` }} />
-                          ))}
+                      <div className="coaching-block">
+                        <div className="coaching-meta">
+                          <div>
+                            <span className="deal-label">Salesperson</span>
+                            <strong>{selectedCall.agent}</strong>
+                          </div>
+                          <div>
+                            <span className="deal-label">Customer</span>
+                            <strong>
+                              {contact.name} · {contact.company}
+                            </strong>
+                          </div>
+                          <div>
+                            <span className="deal-label">When</span>
+                            <strong>{selectedCall.when}</strong>
+                          </div>
                         </div>
-                        <span className="muted">
-                          {formatDuration(selectedCall.durationSec)}
-                        </span>
+                        <div className="recording">
+                          <button
+                            className={`round-btn ${playingCallId === selectedCall.id ? 'danger' : ''}`}
+                            onClick={() => {
+                              setPlayingCallId((id) =>
+                                id === selectedCall.id ? null : selectedCall.id,
+                              )
+                              showToast(
+                                playingCallId === selectedCall.id
+                                  ? 'Paused'
+                                  : `Playing ${contact.name} · ${selectedCall.agent}`,
+                              )
+                            }}
+                          >
+                            <Play size={16} />
+                          </button>
+                          <div className="wave" aria-hidden>
+                            {WAVE.map((h, i) => (
+                              <i key={i} style={{ ['--h' as string]: `${h}%` }} />
+                            ))}
+                          </div>
+                          <span className="muted">
+                            {formatDuration(selectedCall.durationSec)}
+                          </span>
+                        </div>
+                        {currentAgent.role === 'admin' && (
+                          <div className="feedback-box">
+                            <label className="deal-notes">
+                              Feedback for {selectedCall.agent}
+                              <textarea
+                                className="notes-box"
+                                placeholder={`Notes for ${selectedCall.agent} about the call with ${contact.name}…`}
+                                value={feedbackDraft}
+                                onChange={(e) => setFeedbackDraft(e.target.value)}
+                              />
+                            </label>
+                            <button className="btn primary" onClick={saveCallFeedback}>
+                              Save to their coaching file
+                            </button>
+                          </div>
+                        )}
+                        {callFeedback
+                          .filter((f) => f.callId === selectedCall.id)
+                          .map((f) => (
+                            <div key={f.id} className="feedback-chip">
+                              <strong>
+                                {f.adminName} → {f.agentName}
+                              </strong>
+                              <span>
+                                {f.contactName} · {f.createdAt}
+                              </span>
+                              <p>{f.note}</p>
+                            </div>
+                          ))}
                       </div>
                     ) : (
-                      <p className="muted">No recording on this call yet.</p>
+                      <p className="muted">
+                        No recording yet (missed / not connected). Connected calls always save audio.
+                      </p>
                     )}
+                  </div>
+
+                  <div className="card">
+                    <h3>Warm-up pack</h3>
+                    <p className="muted" style={{ marginTop: 0 }}>
+                      Generic intro call? Send a brochure or info kit in one tap (Lark email).
+                    </p>
+                    <div className="deal-section">
+                      <p className="deal-label">Brand for pack</p>
+                      <div className="outcomes">
+                        {BRANDS.map((b) => (
+                          <button
+                            key={b.id}
+                            className={`outcome-btn ${dealBrand === b.id ? 'active' : ''}`}
+                            onClick={() => setDealBrand(b.id)}
+                          >
+                            {b.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="package-grid kit-grid">
+                      {INFO_KITS.filter((k) => k.brandId === dealBrand).map((kit) => (
+                        <button
+                          key={kit.id}
+                          className="package-tile"
+                          onClick={() => sendInfoKit(kit.id)}
+                        >
+                          <strong>{kit.name}</strong>
+                          <span>{kit.blurb}</span>
+                          <em>Send via Lark</em>
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   <div className="card">
@@ -1199,8 +1674,84 @@ export default function App() {
                 <div className="card close-deal">
                   <div className="script-title">
                     <h3 style={{ margin: 0 }}>Close deal</h3>
-                    <span>{DEAL_STATUS_LABEL[dealStatus]}</span>
+                    <span className="deal-status-chip">{DEAL_STATUS_LABEL[dealStatus]}</span>
                   </div>
+
+                  <div className={`deal-track ${dealTrack.allDone ? 'all-done' : ''}`}>
+                    <div
+                      className={`deal-track-card ${
+                        dealTrack.contractDone
+                          ? 'done'
+                          : dealTrack.contractWaiting
+                            ? 'waiting'
+                            : 'todo'
+                      }`}
+                    >
+                      <div className="deal-track-icon">
+                        {dealTrack.contractDone ? (
+                          <CheckCircle2 size={22} />
+                        ) : dealTrack.contractWaiting ? (
+                          <Clock3 size={22} />
+                        ) : (
+                          <FileSignature size={22} />
+                        )}
+                      </div>
+                      <div>
+                        <p className="deal-track-kicker">Contract</p>
+                        <strong>{dealTrack.contractTitle}</strong>
+                        <span>{dealTrack.contractDetail}</span>
+                      </div>
+                    </div>
+
+                    <div
+                      className={`deal-track-card ${
+                        dealTrack.payDone
+                          ? 'done'
+                          : dealTrack.payWaiting
+                            ? 'waiting'
+                            : 'todo'
+                      }`}
+                    >
+                      <div className="deal-track-icon">
+                        {dealTrack.payDone ? (
+                          <CheckCircle2 size={22} />
+                        ) : dealTrack.payWaiting ? (
+                          <Clock3 size={22} />
+                        ) : payType === 'direct_debit' ? (
+                          <Landmark size={22} />
+                        ) : (
+                          <CreditCard size={22} />
+                        )}
+                      </div>
+                      <div>
+                        <p className="deal-track-kicker">
+                          {payType === 'direct_debit' ? 'Direct Debit' : 'Stripe pay'}
+                        </p>
+                        <strong>
+                          {dealTrack.payDone && payType === 'deposit'
+                            ? `Deposit paid (£${depositAmount})`
+                            : dealTrack.payTitle}
+                        </strong>
+                        <span>
+                          {dealTrack.payDone && payType === 'monthly'
+                            ? `£${monthlyAmount}/mo confirmed`
+                            : dealTrack.payDone && payType === 'one_off'
+                              ? `£${totalPrice} received`
+                              : dealTrack.payDetail}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {dealTrack.allDone && (
+                    <div className="deal-complete-banner">
+                      <CheckCircle2 size={18} />
+                      <div>
+                        <strong>Deal complete</strong>
+                        <span>Contract signed · payment confirmed</span>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="deal-section">
                     <p className="deal-label">Brand</p>
@@ -1330,7 +1881,11 @@ export default function App() {
                   <div className="btn-row" style={{ marginTop: 12 }}>
                     <button className="btn lark" onClick={sendContract}>
                       <FileSignature size={16} />
-                      Generate & send contract
+                      {dealTrack.contractDone
+                        ? 'Signed — resend contract'
+                        : dealTrack.contractWaiting
+                          ? 'Waiting for signature…'
+                          : 'Generate & send contract'}
                     </button>
                     <button className="btn primary" onClick={sendPayLink}>
                       {payType === 'direct_debit' ? (
@@ -1338,12 +1893,15 @@ export default function App() {
                       ) : (
                         <CreditCard size={16} />
                       )}
-                      {payType === 'direct_debit'
-                        ? 'Send Direct Debit link'
-                        : 'Send Stripe pay link'}
-                    </button>
-                    <button className="btn ghost" onClick={markCommissionReady}>
-                      Log sale for commission
+                      {dealTrack.payDone
+                        ? payType === 'direct_debit'
+                          ? 'Paid — resend DD link'
+                          : 'Paid — resend Stripe link'
+                        : dealTrack.payWaiting
+                          ? 'Waiting for payment…'
+                          : payType === 'direct_debit'
+                            ? 'Send Direct Debit link'
+                            : 'Send Stripe pay link'}
                     </button>
                   </div>
                 </div>
@@ -1352,6 +1910,8 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {payConfetti && <PayConfettiBurst />}
 
       {toast && <div className="toast">{toast}</div>}
     </div>
