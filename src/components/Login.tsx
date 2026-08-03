@@ -18,8 +18,10 @@ export default function Login() {
       if (mode === 'sign_in') {
         await signInWithPassword(email, password)
       } else {
-        await signUpWithPassword(email, password, name)
-        setCheckEmail(true)
+        const { signedIn } = await signUpWithPassword(email, password, name)
+        // If no confirmation is required, Supabase returns a session immediately;
+        // AuthGate's auth-state listener picks it up and swaps to the app itself.
+        if (!signedIn) setCheckEmail(true)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.')
