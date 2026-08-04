@@ -1,0 +1,459 @@
+diff --git a/src/App.tsx b/src/App.tsx
+index fe120a1..9cda65e 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -73,7 +73,22 @@ import {
+   type PipelineStage,
+ } from './data/mock'
+ import { fetchAgents } from './lib/supabase/agents'
+-import { fetchContacts, updateContactNotes, updateContactStage } from './lib/supabase/contacts'
++import { parseContactCsv } from './lib/csv'
++import {
++  fetchContacts,
++  importCsvContacts,
++  isFollowUpDue,
++  updateContactFollowUp,
++  updateContactNotes,
++  updateContactStage,
++} from './lib/supabase/contacts'
++import {
++  dueFollowUpCount,
++  ensureNotifyPermission,
++  hasAskedNotifyPermission,
++  markAskedNotifyPermission,
++  remindFollowUpsIfNeeded,
++} from './lib/reminders'
+ import {
+   createReferral,
+   fetchReferrals,
+@@ -211,6 +226,9 @@ export default function App({
+   const [agents, setAgents] = useState<Agent[]>([currentAgent])
+   const [nav, setNav] = useState<NavId>('recents')
+   const [filter, setFilter] = useState<'all' | 'missed'>('all')
++  const [contactFilter, setContactFilter] = useState<'all' | 'replied' | 'warmed' | 'due'>('all')
++  const [csvImporting, setCsvImporting] = useState(false)
++  const csvInputRef = useRef<HTMLInputElement>(null)
+   const [query, setQuery] = useState('')
+   const [selectedCallId, setSelectedCallId] = useState(CALLS[0].id)
+   const [selectedContactId, setSelectedContactId] = useState(CALLS[0].contactId)
+@@ -291,12 +309,33 @@ export default function App({
+ 
+   useEffect(() => {
+     fetchContacts(agents)
+-      .then(setContacts)
++      .then((list) => {
++        setContacts(list)
++        // Real DB list only — don’t ping on the initial mock seed.
++        if (agents.length === 0) return
++        const due = dueFollowUpCount(list, isFollowUpDue)
++        remindFollowUpsIfNeeded({
++          dueCount: due,
++          onToast: (msg) => {
++            setToast(msg)
++            window.setTimeout(() => setToast(null), 4200)
++          },
++          openDueList: () => {
++            setNav('contacts')
++            setContactFilter('due')
++          },
++        })
++      })
+       .catch((err) => console.error('Failed to load contacts', err))
+     // Re-fetch once the real team list lands so contact.owner names resolve correctly.
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [agents.length])
+ 
++  const dueCount = useMemo(
++    () => dueFollowUpCount(contacts, isFollowUpDue),
++    [contacts],
++  )
++
+   useEffect(() => {
+     fetchReferrals()
+       .then(setReferrals)
+@@ -612,11 +651,40 @@ export default function App({
+   }, [filter, query])
+ 
+   const filteredContacts = useMemo(() => {
++    const q = query.toLowerCase()
+     return contacts.filter((c) => {
+-      const hay = `${c.name} ${c.company} ${c.phone} ${c.email}`.toLowerCase()
+-      return hay.includes(query.toLowerCase())
++      if (contactFilter === 'replied' && !c.tags.includes('replied')) return false
++      if (contactFilter === 'warmed' && !c.tags.includes('warmed')) return false
++      if (contactFilter === 'due' && !isFollowUpDue(c.nextCallback)) return false
++      if (!q) return true
++      const hay = `${c.name} ${c.company} ${c.phone} ${c.email} ${c.tags.join(' ')}`.toLowerCase()
++      return hay.includes(q)
+     })
+-  }, [contacts, query])
++  }, [contacts, query, contactFilter])
++
++  async function handleCsvFile(file: File) {
++    setCsvImporting(true)
++    try {
++      const text = await file.text()
++      const { rows, errors } = parseContactCsv(text)
++      if (rows.length === 0) {
++        showToast(errors[0] ?? 'No people found in that CSV.')
++        return
++      }
++      const { inserted, updated } = await importCsvContacts(rows, currentAgent.id)
++      const fresh = await fetchContacts(agents)
++      setContacts(fresh)
++      const warn = errors.length ? ` · ${errors.length} row warning(s)` : ''
++      showToast(`CSV done: ${inserted} new, ${updated} updated${warn}`)
++      setNav('contacts')
++    } catch (err) {
++      console.error(err)
++      showToast('CSV upload failed. Check the file and try again.')
++    } finally {
++      setCsvImporting(false)
++      if (csvInputRef.current) csvInputRef.current.value = ''
++    }
++  }
+ 
+   const pipelineColumns = useMemo(() => {
+     return PIPELINE_STAGES.map((stage) => ({
+@@ -1127,7 +1195,27 @@ export default function App({
+           <section className="panel">
+             <div className="panel-head">
+               {nav === 'contacts' ? (
+-                <h2>Contacts</h2>
++                <>
++                  <h2>Contacts</h2>
++                  <button
++                    type="button"
++                    className="btn ghost csv-upload-btn"
++                    disabled={csvImporting}
++                    onClick={() => csvInputRef.current?.click()}
++                  >
++                    {csvImporting ? 'Uploading…' : 'Upload CSV'}
++                  </button>
++                  <input
++                    ref={csvInputRef}
++                    type="file"
++                    accept=".csv,text/csv"
++                    hidden
++                    onChange={(e) => {
++                      const file = e.target.files?.[0]
++                      if (file) void handleCsvFile(file)
++                    }}
++                  />
++                </>
+               ) : (
+                 <div className="tabs">
+                   <button
+@@ -1145,6 +1233,47 @@ export default function App({
+                 </div>
+               )}
+             </div>
++            {nav === 'contacts' && (
++              <div className="tabs contact-filter-tabs">
++                {(
++                  [
++                    ['all', 'All'],
++                    ['replied', 'Replied'],
++                    ['warmed', 'Warmed'],
++                    ['due', dueCount > 0 ? `Due (${dueCount})` : 'Due'],
++                  ] as const
++                ).map(([id, label]) => (
++                  <button
++                    key={id}
++                    type="button"
++                    className={`tab ${contactFilter === id ? 'active' : ''} ${id === 'due' && dueCount > 0 ? 'tab-due' : ''}`}
++                    onClick={() => setContactFilter(id)}
++                  >
++                    {label}
++                  </button>
++                ))}
++              </div>
++            )}
++            {nav === 'contacts' && dueCount > 0 && (
++              <button
++                type="button"
++                className="followup-banner"
++                onClick={() => {
++                  setContactFilter('due')
++                  if (!hasAskedNotifyPermission()) {
++                    markAskedNotifyPermission()
++                    void ensureNotifyPermission().then((p) => {
++                      if (p === 'granted') showToast('Browser reminders on.')
++                      else if (p === 'denied') showToast('Browser reminders blocked — use the Due tab.')
++                    })
++                  }
++                }}
++              >
++                {dueCount === 1
++                  ? '1 follow-up due — tap to view'
++                  : `${dueCount} follow-ups due — tap to view`}
++              </button>
++            )}
+             <div className="search-wrap">
+               <Search size={14} />
+               <input
+@@ -1165,7 +1294,15 @@ export default function App({
+                       <div>
+                         <div className="call-phone">{person.name}</div>
+                         <div className="call-meta">
+-                          {person.company} · {person.phone}
++                          {person.company
++                            ? `${person.company} · `
++                            : ''}
++                          {person.phone || person.email}
++                          {person.tags.includes('replied')
++                            ? ' · replied'
++                            : person.tags.includes('warmed')
++                              ? ' · warmed'
++                              : ''}
+                         </div>
+                       </div>
+                       <div className="call-when">{STAGE_LABEL[person.stage]}</div>
+@@ -2050,7 +2187,40 @@ export default function App({
+                       </div>
+                       <div>
+                         <dt>Tags</dt>
+-                        <dd>{contact.tags.join(', ')}</dd>
++                        <dd>{contact.tags.join(', ') || '—'}</dd>
++                      </div>
++                      <div>
++                        <dt>Follow-up</dt>
++                        <dd>
++                          <input
++                            type="date"
++                            className="followup-date"
++                            value={
++                              contact.nextCallback &&
++                              /^\d{4}-\d{2}-\d{2}/.test(contact.nextCallback)
++                                ? contact.nextCallback.slice(0, 10)
++                                : ''
++                            }
++                            onChange={(e) => {
++                              const value = e.target.value || null
++                              setContacts((prev) =>
++                                prev.map((c) =>
++                                  c.id === contact.id
++                                    ? { ...c, nextCallback: value ?? undefined }
++                                    : c,
++                                ),
++                              )
++                              updateContactFollowUp(contact.id, value).catch((err) =>
++                                console.error('Failed to save follow-up', err),
++                              )
++                              showToast(
++                                value
++                                  ? `Follow-up set for ${value}`
++                                  : 'Follow-up cleared',
++                              )
++                            }}
++                          />
++                        </dd>
+                       </div>
+                     </dl>
+                     <h3 style={{ marginTop: 16 }}>Notes</h3>
+diff --git a/src/index.css b/src/index.css
+index 794502d..81a8160 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -346,6 +346,53 @@ button {
+   font-weight: 600;
+ }
+ 
++.csv-upload-btn {
++  padding: 7px 12px;
++  font-size: 0.7rem;
++}
++
++.contact-filter-tabs {
++  margin: 0 12px 8px;
++}
++
++.tab-due {
++  color: var(--pink);
++}
++
++.followup-banner {
++  margin: 0 12px 10px;
++  width: calc(100% - 24px);
++  text-align: left;
++  padding: 10px 14px;
++  border-radius: 16px;
++  background: rgba(232, 62, 140, 0.12);
++  color: var(--ink);
++  font-size: 0.74rem;
++  font-weight: 600;
++}
++
++.followup-banner:hover {
++  background: rgba(232, 62, 140, 0.18);
++}
++
++.followup-date {
++  width: 100%;
++  border: none;
++  border-radius: 12px;
++  padding: 8px 10px;
++  background: var(--surface-soft);
++  font-size: 0.8rem;
++  font-weight: 500;
++  color: var(--ink);
++  font-family: inherit;
++}
++
++.followup-date:focus {
++  outline: none;
++  background: #fff;
++  box-shadow: 0 0 0 3px rgba(0, 188, 212, 0.15);
++}
++
+ .tabs {
+   display: flex;
+   gap: 4px;
+diff --git a/src/lib/supabase/contacts.ts b/src/lib/supabase/contacts.ts
+index e6dd1c0..fb85252 100644
+--- a/src/lib/supabase/contacts.ts
++++ b/src/lib/supabase/contacts.ts
+@@ -1,6 +1,11 @@
+ import { supabase } from './client'
++import type { CsvContactRow } from '../csv'
++import type { Database } from './types'
+ import type { Agent, Contact, PipelineStage } from '../../data/mock'
+ 
++type ContactUpdate = Database['public']['Tables']['contacts']['Update']
++type ContactInsert = Database['public']['Tables']['contacts']['Insert']
++
+ type ContactRow = {
+   id: string
+   name: string
+@@ -64,3 +69,131 @@ export async function updateContactStage(id: string, stage: PipelineStage) {
+   const { error } = await supabase.from('contacts').update({ stage }).eq('id', id)
+   if (error) throw error
+ }
++
++export async function updateContactFollowUp(id: string, nextCallback: string | null) {
++  const { error } = await supabase
++    .from('contacts')
++    .update({ next_callback: nextCallback, updated_at: new Date().toISOString() })
++    .eq('id', id)
++  if (error) throw error
++}
++
++function mergeTags(existing: string[] | null | undefined, tag: string | null): string[] {
++  const base = [...(existing ?? [])]
++  if (!tag) return base
++  if (!base.includes(tag)) base.push(tag)
++  // Keep replied/warmed mutually exclusive for list filters.
++  if (tag === 'replied') return base.filter((t) => t !== 'warmed')
++  if (tag === 'warmed') return base.filter((t) => t !== 'replied')
++  return base
++}
++
++function mergeNotes(existing: string, incoming: string): string {
++  const a = existing.trim()
++  const b = incoming.trim()
++  if (!b) return a
++  if (!a) return b
++  if (a.includes(b)) return a
++  return `${a}\n\n${b}`
++}
++
++/** Import / update contacts from CSV rows. Match on email (case-insensitive). Stage stays new unless already further. */
++export async function importCsvContacts(
++  rows: CsvContactRow[],
++  ownerId: string,
++): Promise<{ inserted: number; updated: number }> {
++  if (rows.length === 0) return { inserted: 0, updated: 0 }
++
++  // Last row wins if the same email appears twice in one file.
++  const byEmail = new Map<string, CsvContactRow>()
++  for (const row of rows) byEmail.set(row.email.toLowerCase(), row)
++  const uniqueRows = [...byEmail.values()]
++
++  const emails = uniqueRows.map((r) => r.email.toLowerCase())
++  const existingByEmail = new Map<string, ContactRow>()
++
++  // Supabase .in() is fine in chunks for large lists.
++  const chunk = 200
++  for (let i = 0; i < emails.length; i += chunk) {
++    const slice = emails.slice(i, i + chunk)
++    const { data, error } = await supabase
++      .from('contacts')
++      .select(
++        'id, name, company, phone, email, avatar_url, owner_id, stage, source, timezone, quiet_hours, do_not_call, notes, tags, next_callback, region',
++      )
++      .in('email', slice)
++    if (error) throw error
++    for (const row of data ?? []) {
++      const typed = row as ContactRow
++      existingByEmail.set(typed.email.toLowerCase(), typed)
++    }
++  }
++
++  let inserted = 0
++  let updated = 0
++  const toInsert: ContactInsert[] = []
++
++  for (const row of uniqueRows) {
++    const key = row.email.toLowerCase()
++    const existing = existingByEmail.get(key)
++    if (existing) {
++      const tags = mergeTags(existing.tags, row.tag)
++      const notes = mergeNotes(existing.notes, row.notes)
++      const patch: ContactUpdate = {
++        tags,
++        notes,
++        updated_at: new Date().toISOString(),
++      }
++      if (row.company && !existing.company) patch.company = row.company
++      if (row.name && existing.name !== row.name) patch.name = row.name
++      if (row.nextCallback) patch.next_callback = row.nextCallback
++      if (!existing.source) patch.source = 'email-campaign'
++
++      const { error } = await supabase.from('contacts').update(patch).eq('id', existing.id)
++      if (error) throw error
++      updated++
++    } else {
++      toInsert.push({
++        name: row.name,
++        email: key,
++        company: row.company,
++        phone: '',
++        owner_id: ownerId,
++        stage: 'new',
++        source: 'email-campaign',
++        timezone: 'Europe/London',
++        quiet_hours: '',
++        do_not_call: false,
++        notes: row.notes,
++        tags: row.tag ? [row.tag] : [],
++        next_callback: row.nextCallback || null,
++        region: 'other',
++      })
++      inserted++
++    }
++  }
++
++  for (let i = 0; i < toInsert.length; i += chunk) {
++    const slice = toInsert.slice(i, i + chunk)
++    const { error } = await supabase.from('contacts').insert(slice)
++    if (error) throw error
++  }
++
++  return { inserted, updated }
++}
++
++/** True when follow-up date is today or overdue (YYYY-MM-DD). Free-text dates are ignored. */
++export function isFollowUpDue(nextCallback: string | undefined, todayIso = todayYmd()): boolean {
++  if (!nextCallback) return false
++  const m = nextCallback.trim().match(/^(\d{4}-\d{2}-\d{2})/)
++  if (!m) return false
++  return m[1] <= todayIso
++}
++
++export function todayYmd(): string {
++  const d = new Date()
++  const y = d.getFullYear()
++  const mo = String(d.getMonth() + 1).padStart(2, '0')
++  const day = String(d.getDate()).padStart(2, '0')
++  return `${y}-${mo}-${day}`
++}

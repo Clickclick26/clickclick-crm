@@ -4,6 +4,9 @@
 
 The frontend UI is intentional and approved. Do **not** redesign it.
 
+> **Cursor note (2026-08-04):** CSV upload + follow-up reminders were added while Kathryn was out of Claude credits.  
+> See **`docs/cursor-handoff-2026-08-04-csv-reminders/README.md`** — review, merge with any of your other changes, then commit when she asks. Not committed yet on purpose.
+
 ---
 
 ## Hard rules (do not break)

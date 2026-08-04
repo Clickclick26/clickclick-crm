@@ -39,9 +39,6 @@ import {
   LogOut,
   Paperclip,
   X,
-  MessageCircle,
-  Copy,
-  ExternalLink,
 } from 'lucide-react'
 import {
   BRANDS,
@@ -77,7 +74,6 @@ import {
 } from './data/mock'
 import { fetchAgents } from './lib/supabase/agents'
 import { parseContactCsv } from './lib/csv'
-import { parseInstagramBlock } from './lib/instagram'
 import {
   fetchContacts,
   importCsvContacts,
@@ -2227,46 +2223,6 @@ export default function App({
                         </dd>
                       </div>
                     </dl>
-                    {(() => {
-                      const ig = parseInstagramBlock(notes)
-                      if (!ig) return null
-                      const isFb = /facebook\.com/i.test(ig.url)
-                      const channel = isFb ? 'Facebook' : 'Instagram'
-                      return (
-                        <div className="ig-outreach">
-                          <h3 style={{ marginTop: 16 }}>
-                            <MessageCircle size={16} aria-hidden /> {channel} message
-                          </h3>
-                          <pre className="ig-message">{ig.message || '—'}</pre>
-                          <div className="btn-row ig-actions">
-                            <button
-                              type="button"
-                              className="btn primary"
-                              disabled={!ig.message}
-                              onClick={() => {
-                                void navigator.clipboard.writeText(ig.message).then(
-                                  () =>
-                                    showToast(`Message copied — paste into ${channel}`),
-                                  () => showToast('Could not copy — select the text instead'),
-                                )
-                              }}
-                            >
-                              <Copy size={14} aria-hidden /> Copy message
-                            </button>
-                            {ig.url ? (
-                              <a
-                                className="btn"
-                                href={ig.url}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                <ExternalLink size={14} aria-hidden /> Open {channel}
-                              </a>
-                            ) : null}
-                          </div>
-                        </div>
-                      )
-                    })()}
                     <h3 style={{ marginTop: 16 }}>Notes</h3>
                     <textarea
                       className="notes-box"
