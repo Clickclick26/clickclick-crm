@@ -7,7 +7,7 @@ async function fetchAgentRow(userId: string): Promise<
 > {
   const { data, error } = await supabase
     .from('agents')
-    .select('id, name, role, online, personal_number_id')
+    .select('id, name, role, online, personal_number_id, avatar_url')
     .eq('id', userId)
     .maybeSingle()
 
@@ -21,6 +21,7 @@ async function fetchAgentRow(userId: string): Promise<
       role: data.role,
       online: data.online,
       personalNumberId: data.personal_number_id ?? '',
+      avatarUrl: data.avatar_url ?? undefined,
     },
     error: null,
   }
@@ -84,7 +85,7 @@ export function useCurrentAgent() {
     }
   }, [])
 
-  return { agent, loading, error }
+  return { agent, loading, error, setAgent }
 }
 
 export async function signInWithPassword(email: string, password: string) {

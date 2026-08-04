@@ -3,7 +3,7 @@ import Login from './Login'
 import App from '../App'
 
 export default function AuthGate() {
-  const { agent, loading, error } = useCurrentAgent()
+  const { agent, loading, error, setAgent } = useCurrentAgent()
 
   if (loading) {
     return <div className="auth-screen">Loading…</div>
@@ -27,5 +27,13 @@ export default function AuthGate() {
     return <Login />
   }
 
-  return <App currentAgent={agent} onSignOut={signOut} />
+  return (
+    <App
+      currentAgent={agent}
+      onSignOut={signOut}
+      onAvatarChange={(avatarUrl) =>
+        setAgent((prev) => (prev ? { ...prev, avatarUrl } : prev))
+      }
+    />
+  )
 }

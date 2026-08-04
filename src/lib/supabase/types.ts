@@ -18,6 +18,7 @@ export type Database = {
         online: boolean
         on_call_with: string | null
         personal_number_id: string | null
+        avatar_url: string | null
         created_at: string
       }>
       brands: Row<{ id: string; label: string }>
@@ -109,6 +110,7 @@ export type Database = {
       info_kits: Row<{
         id: string
         brand_id: string
+        package_id: string | null
         name: string
         blurb: string
         subject: string
@@ -159,6 +161,19 @@ export type Database = {
         basis: string
         status: string
         created_at: string
+      }>
+      referrals: Row<{
+        id: string
+        code: string
+        referrer_contact_id: string
+        referred_contact_id: string | null
+        referred_deal_id: string | null
+        status: 'pending' | 'referred' | 'won' | 'rewarded' | 'expired'
+        reward_type: 'discount_percent' | 'discount_amount' | 'cash' | 'credit' | null
+        reward_value: number | null
+        notes: string
+        created_at: string
+        updated_at: string
       }>
     }
   }

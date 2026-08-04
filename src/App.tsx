@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import LottieImport from 'lottie-react'
 import confettiAnimation from './assets/confetti.json'
 
@@ -35,6 +35,10 @@ import {
   VolumeX,
   Video,
   CheckCircle2,
+  ImagePlus,
+  LogOut,
+  Paperclip,
+  X,
 } from 'lucide-react'
 import {
   BRANDS,
@@ -64,11 +68,29 @@ import {
   type Contact,
   type ContractTemplate,
   type DealStatus,
+  type InfoKit,
   type PayType,
   type PipelineStage,
 } from './data/mock'
 import { fetchAgents } from './lib/supabase/agents'
 import { fetchContacts, updateContactNotes, updateContactStage } from './lib/supabase/contacts'
+import {
+  createReferral,
+  fetchReferrals,
+  redeemReferralCode,
+  updateReferralStatus,
+  type Referral,
+  type ReferralStatus,
+} from './lib/supabase/referrals'
+import { uploadAvatar, updateAgentAvatar } from './lib/supabase/profile'
+import {
+  createInfoKit,
+  deleteInfoKit,
+  fetchInfoKits,
+  updateInfoKit,
+} from './lib/supabase/infoKits'
+import { createDeal, fetchDealForContact, updateDeal } from './lib/supabase/deals'
+import { createLarkVideoInvite } from './lib/supabase/lark'
 
 type NavId =
   | 'dialer'
@@ -80,6 +102,16 @@ type NavId =
   | 'settings'
 
 const PIPELINE_STAGES: PipelineStage[] = ['new', 'talking', 'proposal', 'won', 'lost']
+
+const DEFAULT_CONTRACT_EMAIL_SUBJECT = 'Your contract from {{brand}}'
+const DEFAULT_CONTRACT_EMAIL_BODY = `Hi {{client_name}},
+
+Great speaking today — your contract's attached, ready to sign.
+
+Any questions, just reply here.
+
+Best,
+{{agent}}`
 
 const WAVE = [28, 55, 40, 72, 35, 80, 48, 62, 30, 70, 45, 85, 38, 60, 50, 75, 42, 68, 33, 58]
 
@@ -170,9 +202,11 @@ function PayConfettiBurst() {
 export default function App({
   currentAgent,
   onSignOut,
+  onAvatarChange,
 }: {
   currentAgent: Agent
   onSignOut: () => void
+  onAvatarChange: (avatarUrl: string) => void
 }) {
   const [agents, setAgents] = useState<Agent[]>([currentAgent])
   const [nav, setNav] = useState<NavId>('recents')
@@ -190,6 +224,8 @@ export default function App({
   const [toast, setToast] = useState<string | null>(null)
   const [emailSubject, setEmailSubject] = useState('Quick follow-up from ClickClick')
   const [emailBody, setEmailBody] = useState('')
+  const [emailAttachments, setEmailAttachments] = useState<File[]>([])
+  const attachmentInputRef = useRef<HTMLInputElement>(null)
   const [activeList, setActiveList] = useState(DIALER_LISTS[0].id)
   const [dealBrand, setDealBrand] = useState<BrandId>('clickclick')
   const [selectedPackages, setSelectedPackages] = useState<string[]>(['cc-starter'])
@@ -203,6 +239,7 @@ export default function App({
   const [depositAmount, setDepositAmount] = useState('500')
   const [monthlyAmount, setMonthlyAmount] = useState('299')
   const [customNotes, setCustomNotes] = useState('')
+  const [currentDealId, setCurrentDealId] = useState<string | null>(null)
   const [scriptScope, setScriptScope] = useState<'everyone' | string>('everyone')
   const [defaultScriptTitle, setDefaultScriptTitle] = useState(SCRIPT.title)
   const [defaultScriptBody, setDefaultScriptBody] = useState(SCRIPT.body)
@@ -215,9 +252,22 @@ export default function App({
   const [selectedTemplateId, setSelectedTemplateId] = useState(CONTRACT_TEMPLATES[0].id)
   const [editTemplateBody, setEditTemplateBody] = useState(CONTRACT_TEMPLATES[0].body)
   const [editTemplateName, setEditTemplateName] = useState(CONTRACT_TEMPLATES[0].name)
+  const [editTemplateEmailSubject, setEditTemplateEmailSubject] = useState(
+    CONTRACT_TEMPLATES[0].emailSubject ?? DEFAULT_CONTRACT_EMAIL_SUBJECT,
+  )
+  const [editTemplateEmailBody, setEditTemplateEmailBody] = useState(
+    CONTRACT_TEMPLATES[0].emailBody ?? DEFAULT_CONTRACT_EMAIL_BODY,
+  )
   const [settingsTab, setSettingsTab] = useState<
-    'scripts' | 'contracts' | 'coaching' | 'connect'
+    'scripts' | 'contracts' | 'kits' | 'coaching' | 'connect'
   >('scripts')
+  const [infoKits, setInfoKits] = useState<InfoKit[]>(INFO_KITS)
+  const [selectedKitId, setSelectedKitId] = useState<string | null>(null)
+  const [editKitBrand, setEditKitBrand] = useState<BrandId>('clickclick')
+  const [editKitPackageId, setEditKitPackageId] = useState<string | null>(null)
+  const [editKitName, setEditKitName] = useState('')
+  const [editKitBlurb, setEditKitBlurb] = useState('')
+  const [editKitSubject, setEditKitSubject] = useState('')
   const [fromMode, setFromMode] = useState<'auto' | 'manual'>('auto')
   const [manualFromId, setManualFromId] = useState<string | null>(null)
   const [contacts, setContacts] = useState<Contact[]>(CONTACTS)
@@ -228,6 +278,10 @@ export default function App({
   const [coachingAgentFilter, setCoachingAgentFilter] = useState<string>('all')
   const [callChannel, setCallChannel] = useState<'phone' | 'lark_video'>('phone')
   const [larkMeetingUrl, setLarkMeetingUrl] = useState<string | null>(null)
+  const [referrals, setReferrals] = useState<Referral[]>([])
+  const [redeemCodeDraft, setRedeemCodeDraft] = useState('')
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     fetchAgents()
@@ -243,6 +297,18 @@ export default function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents.length])
 
+  useEffect(() => {
+    fetchReferrals()
+      .then(setReferrals)
+      .catch((err) => console.error('Failed to load referrals', err))
+  }, [])
+
+  useEffect(() => {
+    fetchInfoKits()
+      .then(setInfoKits)
+      .catch((err) => console.error('Failed to load info kits', err))
+  }, [])
+
   function contactById(id: string) {
     return contacts.find((c) => c.id === id) ?? contactByIdStatic(id)
   }
@@ -252,6 +318,11 @@ export default function App({
     contactById(selectedContactId) ?? contactById(selectedCall.contactId) ?? CONTACTS[0]
 
   const liveAgent = agents.find((a) => a.onCallWith)
+
+  // Referral this contact can hand out to someone else.
+  const outgoingReferral = referrals.find((r) => r.referrerContactId === contact.id)
+  // Referral that brought this contact in, if any.
+  const incomingReferral = referrals.find((r) => r.referredContactId === contact.id)
 
   const brandPackages = useMemo(
     () => PACKAGES.filter((p) => p.brandId === dealBrand),
@@ -288,8 +359,98 @@ export default function App({
     setCompanyName(contact.company)
   }, [contact.id, contact.name, contact.company])
 
+  // Load (or start) this contact's deal from Supabase whenever the selected contact changes.
   useEffect(() => {
-    const first = PACKAGES.find((p) => p.brandId === dealBrand)
+    let cancelled = false
+    setCurrentDealId(null) // pause autosave while (re)loading, avoids saving to the wrong deal
+    fetchDealForContact(contact.id)
+      .then((deal) => {
+        if (cancelled) return
+        if (deal) {
+          setDealBrand(deal.brandId)
+          setSelectedPackages(deal.packageIds)
+          setPayType(deal.payType)
+          setDealStatus(deal.status)
+          setClientName(deal.clientName)
+          setCompanyName(deal.company)
+          setStartDate(deal.startDate)
+          setEndDate(deal.endDate)
+          setTotalPrice(deal.totalPrice)
+          setDepositAmount(deal.depositAmount)
+          setMonthlyAmount(deal.monthlyAmount)
+          setCustomNotes(deal.customNotes)
+          setCurrentDealId(deal.id)
+          return
+        }
+        return createDeal({
+          contactId: contact.id,
+          agentId: currentAgent.id,
+          brandId: dealBrand,
+          packageIds: selectedPackages,
+          payType,
+          status: 'draft',
+          clientName: contact.name,
+          company: contact.company,
+          startDate,
+          endDate,
+          totalPrice,
+          depositAmount,
+          monthlyAmount,
+          customNotes: '',
+        }).then((created) => {
+          if (cancelled) return
+          setCurrentDealId(created.id)
+        })
+      })
+      .catch((err) => console.error('Failed to load/create deal', err))
+    return () => {
+      cancelled = true
+    }
+    // Only the contact switch should trigger a (re)load — everything else is autosaved below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contact.id])
+
+  // Debounced autosave: any deal field change writes back to the loaded/created row.
+  useEffect(() => {
+    if (!currentDealId) return
+    const handle = window.setTimeout(() => {
+      updateDeal(currentDealId, {
+        brandId: dealBrand,
+        packageIds: selectedPackages,
+        payType,
+        status: dealStatus,
+        clientName,
+        company: companyName,
+        startDate,
+        endDate,
+        totalPrice,
+        depositAmount,
+        monthlyAmount,
+        customNotes,
+      }).catch((err) => console.error('Failed to save deal', err))
+    }, 500)
+    return () => window.clearTimeout(handle)
+  }, [
+    currentDealId,
+    dealBrand,
+    selectedPackages,
+    payType,
+    dealStatus,
+    clientName,
+    companyName,
+    startDate,
+    endDate,
+    totalPrice,
+    depositAmount,
+    monthlyAmount,
+    customNotes,
+  ])
+
+  // User-initiated brand switch: starts a fresh deal for that brand.
+  // (Loading a persisted deal sets dealBrand directly and must NOT go through this reset.)
+  function pickDealBrand(brandId: BrandId) {
+    setDealBrand(brandId)
+    const first = PACKAGES.find((p) => p.brandId === brandId)
     if (!first) return
     setSelectedPackages([first.id])
     setTotalPrice(String(first.defaultPrice))
@@ -297,7 +458,7 @@ export default function App({
     setDepositAmount(String(Math.round(first.defaultPrice * 0.3)))
     setDealStatus('draft')
     setPayConfetti(false)
-  }, [dealBrand])
+  }
 
   function togglePackage(id: string) {
     setSelectedPackages((prev) => {
@@ -350,7 +511,28 @@ export default function App({
         prev.map((c) => (c.id === contact.id ? { ...c, stage: 'proposal' } : c)),
       )
     }
-    showToast('Contract on its way — they’ll sign on their phone.')
+
+    // Fill the shared Email via Lark composer so the cover email is reviewable/editable
+    // and can carry extra attachments, instead of firing off silently.
+    const brandLabel = BRANDS.find((b) => b.id === dealBrand)?.label ?? dealBrand
+    const template = contractTemplates.find(
+      (t) => t.brandId === dealBrand && t.payType === payType,
+    )
+    const subjectTemplate = template?.emailSubject ?? DEFAULT_CONTRACT_EMAIL_SUBJECT
+    const bodyTemplate = template?.emailBody ?? DEFAULT_CONTRACT_EMAIL_BODY
+    setEmailSubject(subjectTemplate.replaceAll('{{brand}}', brandLabel))
+    setEmailBody(
+      bodyTemplate
+        .replaceAll('{{client_name}}', contact.name.split(' ')[0])
+        .replaceAll('{{brand}}', brandLabel)
+        .replaceAll('{{agent}}', currentAgent.name),
+    )
+    setEmailAttachments((prev) => [
+      ...prev,
+      new File([`Contract for ${contact.name}`], 'contract.pdf', { type: 'application/pdf' }),
+    ])
+
+    showToast('Contract drafted below — review and send with Lark (attach anything extra first).')
     window.setTimeout(() => {
       setDealStatus('signed')
       showToast('Signed and filed. Send pay when you’re ready.')
@@ -362,9 +544,32 @@ export default function App({
       showToast('Get the contract signed first (or send both).')
     }
     burstPayConfetti()
+
+    // Placeholder link — swap for a real Stripe/GoCardless URL once the secret
+    // key is wired server-side (Supabase Edge Function). Not a real charge.
+    const payLinkUrl = `https://pay.clickclick.video/mock/${contact.id}-${Date.now()}`
+    const hasContractAttached = emailAttachments.some((f) => f.name === 'contract.pdf')
+    const payLinkLabel =
+      payType === 'direct_debit'
+        ? 'set up your Direct Debit'
+        : payType === 'deposit'
+          ? `pay your deposit (£${depositAmount})`
+          : payType === 'monthly'
+            ? `set up your monthly payment (£${monthlyAmount}/mo)`
+            : `pay your invoice (£${totalPrice})`
+    setEmailSubject((prev) => prev || `Your contract & payment link`)
+    setEmailBody(
+      `Hi ${contact.name.split(' ')[0]},\n\n` +
+        (hasContractAttached
+          ? `Thanks for signing — contract’s attached above for your records.\n\n`
+          : '') +
+        `Here’s your secure link to ${payLinkLabel}: ${payLinkUrl}\n\n` +
+        `Any questions, just reply here.\n\nBest,\n${currentAgent.name}`,
+    )
+
     if (payType === 'direct_debit') {
       setDealStatus('pay_sent')
-      showToast('Direct Debit link sent — waiting for them to confirm.')
+      showToast('Direct Debit link drafted below — review and send with Lark.')
       window.setTimeout(() => {
         setDealStatus('active')
         celebrateSale('direct_debit')
@@ -373,7 +578,7 @@ export default function App({
     }
     if (payType === 'deposit') {
       setDealStatus('pay_sent')
-      showToast(`Deposit link (£${depositAmount}) sent.`)
+      showToast(`Deposit link (£${depositAmount}) drafted below — review and send with Lark.`)
       window.setTimeout(() => {
         setDealStatus('deposit_paid')
         celebrateSale('deposit')
@@ -382,7 +587,7 @@ export default function App({
     }
     if (payType === 'monthly') {
       setDealStatus('pay_sent')
-      showToast(`Monthly link (£${monthlyAmount}/mo) sent.`)
+      showToast(`Monthly link (£${monthlyAmount}/mo) drafted below — review and send with Lark.`)
       window.setTimeout(() => {
         setDealStatus('active')
         celebrateSale('monthly')
@@ -390,7 +595,7 @@ export default function App({
       return
     }
     setDealStatus('pay_sent')
-    showToast(`Pay link (£${totalPrice}) sent.`)
+    showToast(`Pay link (£${totalPrice}) drafted below — review and send with Lark.`)
     window.setTimeout(() => {
       setDealStatus('closed')
       celebrateSale('one_off')
@@ -481,17 +686,87 @@ export default function App({
     setSelectedTemplateId(id)
     setEditTemplateName(t.name)
     setEditTemplateBody(t.body)
+    setEditTemplateEmailSubject(t.emailSubject ?? DEFAULT_CONTRACT_EMAIL_SUBJECT)
+    setEditTemplateEmailBody(t.emailBody ?? DEFAULT_CONTRACT_EMAIL_BODY)
   }
 
   function saveContractTemplate() {
     setContractTemplates((prev) =>
       prev.map((t) =>
         t.id === selectedTemplateId
-          ? { ...t, name: editTemplateName, body: editTemplateBody }
+          ? {
+              ...t,
+              name: editTemplateName,
+              body: editTemplateBody,
+              emailSubject: editTemplateEmailSubject,
+              emailBody: editTemplateEmailBody,
+            }
           : t,
       ),
     )
     showToast('Contract template saved (mock).')
+  }
+
+  function selectInfoKit(id: string | null) {
+    setSelectedKitId(id)
+    if (!id) {
+      setEditKitPackageId(null)
+      setEditKitName('')
+      setEditKitBlurb('')
+      setEditKitSubject('')
+      return
+    }
+    const kit = infoKits.find((k) => k.id === id)
+    if (!kit) return
+    setEditKitBrand(kit.brandId)
+    setEditKitPackageId(kit.packageId ?? null)
+    setEditKitName(kit.name)
+    setEditKitBlurb(kit.blurb)
+    setEditKitSubject(kit.subject)
+  }
+
+  async function saveInfoKit() {
+    if (!editKitName.trim()) {
+      showToast('Give the kit a name first.')
+      return
+    }
+    const patch = {
+      brandId: editKitBrand,
+      packageId: editKitPackageId,
+      name: editKitName.trim(),
+      blurb: editKitBlurb,
+      subject: editKitSubject,
+    }
+    try {
+      if (selectedKitId) {
+        await updateInfoKit(selectedKitId, patch)
+        setInfoKits((prev) =>
+          prev.map((k) => (k.id === selectedKitId ? { ...k, ...patch, packageId: patch.packageId ?? undefined } : k)),
+        )
+        showToast('Kit saved.')
+      } else {
+        const created = await createInfoKit(patch)
+        setInfoKits((prev) => [...prev, created])
+        setSelectedKitId(created.id)
+        showToast('Kit created.')
+      }
+    } catch (err) {
+      console.error('Failed to save info kit', err)
+      showToast('Could not save that kit.')
+    }
+  }
+
+  async function deleteSelectedInfoKit() {
+    if (!selectedKitId) return
+    try {
+      await deleteInfoKit(selectedKitId)
+      setInfoKits((prev) => prev.filter((k) => k.id !== selectedKitId))
+      selectInfoKit(null)
+      showToast('Kit deleted.')
+    } catch (err) {
+      console.error('Failed to delete info kit', err)
+      showToast('Could not delete that kit.')
+    }
   }
 
   function showToast(msg: string) {
@@ -549,14 +824,27 @@ export default function App({
     )
   }
 
-  function startLarkVideo() {
-    // Real: Lark VC API reserve/apply → meeting url → email/SMS guest link via Lark
-    const mockUrl = `https://vc.larksuite.com/j/demo-${contact.id}`
-    setLarkMeetingUrl(mockUrl)
+  async function startLarkVideo() {
     setOnCall(true)
     setRecording(true)
     setActiveObjection(null)
-    showToast(`Lark video ready · invite sent to ${contact.name} (mock)`)
+    showToast('Setting up Lark video…')
+    try {
+      const joinUrl = await createLarkVideoInvite({
+        contactName: contact.name,
+        contactEmail: contact.email,
+        agentName: currentAgent.name,
+        brand: dealBrand === 'clocal' ? 'CLocal' : 'ClickClick',
+      })
+      setLarkMeetingUrl(joinUrl)
+      showToast(`Lark video ready · invite emailed to ${contact.name}`)
+    } catch (err) {
+      setOnCall(false)
+      setRecording(false)
+      showToast(
+        err instanceof Error ? `Couldn't start Lark video: ${err.message}` : 'Couldn’t start Lark video',
+      )
+    }
   }
 
   function endCall() {
@@ -611,11 +899,26 @@ export default function App({
   }
 
   function sendLarkEmail() {
-    showToast('Email queued via Lark Mail API (connect keys later).')
+    const attachmentNote = emailAttachments.length
+      ? ` with ${emailAttachments.length} attachment${emailAttachments.length > 1 ? 's' : ''}`
+      : ''
+    showToast(`Email queued via Lark Mail API${attachmentNote} (connect keys later).`)
+    setEmailAttachments([])
+  }
+
+  function handleAttachmentsChange(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = ''
+    if (!files.length) return
+    setEmailAttachments((prev) => [...prev, ...files])
+  }
+
+  function removeAttachment(index: number) {
+    setEmailAttachments((prev) => prev.filter((_, i) => i !== index))
   }
 
   function sendInfoKit(kitId: string) {
-    const kit = INFO_KITS.find((k) => k.id === kitId)
+    const kit = infoKits.find((k) => k.id === kitId)
     if (!kit) return
     const brand = BRANDS.find((b) => b.id === kit.brandId)?.label ?? 'ClickClick'
     setEmailSubject(kit.subject)
@@ -623,6 +926,57 @@ export default function App({
       `Hi ${contact.name.split(' ')[0]},\n\nGreat chatting — here’s our ${kit.name.toLowerCase()} from ${brand}.\n\nHappy to walk through it on a quick call or Lark video whenever suits.\n\nBest,\n${currentAgent.name}`,
     )
     showToast(`${kit.name} sent to ${contact.email} via Lark (mock)`)
+  }
+
+  async function handleGenerateReferralCode() {
+    try {
+      const referral = await createReferral(contact.id)
+      setReferrals((prev) => [referral, ...prev])
+      showToast(`Referral code ${referral.code} ready to hand out.`)
+    } catch (err) {
+      console.error('Failed to create referral', err)
+      showToast('Could not generate a referral code.')
+    }
+  }
+
+  async function handleRedeemReferralCode() {
+    const code = redeemCodeDraft.trim()
+    if (!code) return
+    try {
+      const referral = await redeemReferralCode(code, contact.id)
+      setReferrals((prev) => [referral, ...prev.filter((r) => r.id !== referral.id)])
+      setRedeemCodeDraft('')
+      showToast(`Linked to referral ${referral.code}.`)
+    } catch (err) {
+      console.error('Failed to redeem referral code', err)
+      showToast('Code not found or already used.')
+    }
+  }
+
+  async function handleSetReferralStatus(id: string, status: ReferralStatus) {
+    try {
+      await updateReferralStatus(id, status)
+      setReferrals((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)))
+    } catch (err) {
+      console.error('Failed to update referral status', err)
+      showToast('Could not update referral status.')
+    }
+  }
+
+  async function handleAvatarFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    try {
+      const avatarUrl = await uploadAvatar(currentAgent.id, file)
+      await updateAgentAvatar(currentAgent.id, avatarUrl)
+      onAvatarChange(avatarUrl)
+      setProfileMenuOpen(false)
+      showToast('Profile photo updated.')
+    } catch (err) {
+      console.error('Failed to update avatar', err)
+      showToast('Could not update your photo.')
+    }
   }
 
   function moveContactStage(id: string, stage: PipelineStage) {
@@ -670,16 +1024,69 @@ export default function App({
             <span className="dot" />
             Ready
           </div>
-          <button className="user-chip" onClick={onSignOut} title="Sign out">
-            <img
-              src="https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=80&h=80&fit=crop"
-              alt=""
-            />
-            <span>
-              {currentAgent.name}
-              {currentAgent.role === 'admin' ? ' · Admin' : ''}
-            </span>
-          </button>
+          <div
+            className="user-menu"
+            tabIndex={-1}
+            onBlur={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) setProfileMenuOpen(false)
+            }}
+          >
+            <button
+              className="user-chip"
+              onClick={() => setProfileMenuOpen((v) => !v)}
+              title="Profile"
+            >
+              <img
+                src={
+                  currentAgent.avatarUrl ||
+                  'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=80&h=80&fit=crop'
+                }
+                alt=""
+              />
+              <span>
+                {currentAgent.name}
+                {currentAgent.role === 'admin' ? ' · Admin' : ''}
+              </span>
+            </button>
+            {profileMenuOpen && (
+              <div className="user-menu-dropdown profile-panel">
+                <div className="profile-panel-head">
+                  <img
+                    className="profile-avatar-lg"
+                    src={
+                      currentAgent.avatarUrl ||
+                      'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=80&h=80&fit=crop'
+                    }
+                    alt=""
+                  />
+                  <div>
+                    <strong>{currentAgent.name}</strong>
+                    <span className="badge" style={{ marginTop: 4 }}>
+                      {currentAgent.role === 'admin' ? 'Admin' : 'Agent'}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  className="user-menu-item"
+                  onClick={() => avatarInputRef.current?.click()}
+                >
+                  <ImagePlus size={14} />
+                  Change photo
+                </button>
+                <button className="user-menu-item danger" onClick={onSignOut}>
+                  <LogOut size={14} />
+                  Sign out
+                </button>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={handleAvatarFileChange}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -947,6 +1354,12 @@ export default function App({
                     Contracts
                   </button>
                   <button
+                    className={`tab ${settingsTab === 'kits' ? 'active' : ''}`}
+                    onClick={() => setSettingsTab('kits')}
+                  >
+                    Info kits
+                  </button>
+                  <button
                     className={`tab ${settingsTab === 'coaching' ? 'active' : ''}`}
                     onClick={() => setSettingsTab('coaching')}
                   >
@@ -1072,6 +1485,32 @@ export default function App({
                       onChange={(e) => setEditTemplateBody(e.target.value)}
                     />
                   </label>
+
+                  <h3 style={{ marginTop: 18 }}>Cover email</h3>
+                  <p className="muted" style={{ marginTop: 0 }}>
+                    The message sent alongside the contract — separate from the document itself.
+                    Tags: <code>{'{{client_name}}'}</code> <code>{'{{brand}}'}</code>{' '}
+                    <code>{'{{agent}}'}</code>
+                  </p>
+                  <div className="deal-fields" style={{ gridTemplateColumns: '1fr' }}>
+                    <label>
+                      Email subject
+                      <input
+                        value={editTemplateEmailSubject}
+                        onChange={(e) => setEditTemplateEmailSubject(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <label className="deal-notes">
+                    Email body
+                    <textarea
+                      className="notes-box"
+                      style={{ minHeight: 140 }}
+                      value={editTemplateEmailBody}
+                      onChange={(e) => setEditTemplateEmailBody(e.target.value)}
+                    />
+                  </label>
+
                   <div className="btn-row" style={{ marginTop: 12 }}>
                     <button className="btn primary" onClick={saveContractTemplate}>
                       Save template
@@ -1085,11 +1524,125 @@ export default function App({
                         if (!original) return
                         setEditTemplateName(original.name)
                         setEditTemplateBody(original.body)
+                        setEditTemplateEmailSubject(
+                          original.emailSubject ?? DEFAULT_CONTRACT_EMAIL_SUBJECT,
+                        )
+                        setEditTemplateEmailBody(original.emailBody ?? DEFAULT_CONTRACT_EMAIL_BODY)
                         showToast('Reverted to original text (not saved yet).')
                       }}
                     >
                       Revert text
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {settingsTab === 'kits' && (
+                <div className="card" style={{ maxWidth: 820 }}>
+                  <h3>Info kits</h3>
+                  <p className="muted" style={{ marginTop: 0 }}>
+                    Brochures/info kits agents send from the Warm-up pack. Leave package as
+                    General to show it for every package under a brand.
+                  </p>
+
+                  <div className="deal-section">
+                    <p className="deal-label">Brand</p>
+                    <div className="outcomes">
+                      {BRANDS.map((b) => (
+                        <button
+                          key={b.id}
+                          className={`outcome-btn ${editKitBrand === b.id ? 'active' : ''}`}
+                          onClick={() => {
+                            setEditKitBrand(b.id)
+                            setEditKitPackageId(null)
+                          }}
+                        >
+                          {b.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="deal-section">
+                    <p className="deal-label">
+                      Existing kits for {BRANDS.find((b) => b.id === editKitBrand)?.label}
+                    </p>
+                    <div className="outcomes">
+                      <button
+                        className={`outcome-btn ${selectedKitId === null ? 'active' : ''}`}
+                        onClick={() => selectInfoKit(null)}
+                      >
+                        + New kit
+                      </button>
+                      {infoKits
+                        .filter((k) => k.brandId === editKitBrand)
+                        .map((k) => (
+                          <button
+                            key={k.id}
+                            className={`outcome-btn ${selectedKitId === k.id ? 'active' : ''}`}
+                            onClick={() => selectInfoKit(k.id)}
+                          >
+                            {k.name}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+
+                  <div className="deal-section">
+                    <p className="deal-label">Package (optional)</p>
+                    <div className="outcomes">
+                      <button
+                        className={`outcome-btn ${editKitPackageId === null ? 'active' : ''}`}
+                        onClick={() => setEditKitPackageId(null)}
+                      >
+                        General
+                      </button>
+                      {PACKAGES.filter((p) => p.brandId === editKitBrand).map((p) => (
+                        <button
+                          key={p.id}
+                          className={`outcome-btn ${editKitPackageId === p.id ? 'active' : ''}`}
+                          onClick={() => setEditKitPackageId(p.id)}
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="deal-fields" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                    <label>
+                      Kit name
+                      <input
+                        value={editKitName}
+                        onChange={(e) => setEditKitName(e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Email subject
+                      <input
+                        value={editKitSubject}
+                        onChange={(e) => setEditKitSubject(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <label className="deal-notes">
+                    Blurb (shown on the tile)
+                    <textarea
+                      className="notes-box"
+                      value={editKitBlurb}
+                      onChange={(e) => setEditKitBlurb(e.target.value)}
+                    />
+                  </label>
+
+                  <div className="btn-row" style={{ marginTop: 12 }}>
+                    <button className="btn primary" onClick={saveInfoKit}>
+                      {selectedKitId ? 'Save kit' : 'Create kit'}
+                    </button>
+                    {selectedKitId && (
+                      <button className="btn ghost" onClick={deleteSelectedInfoKit}>
+                        Delete kit
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -1346,9 +1899,24 @@ export default function App({
                       <div className="btn-row">
                         <button
                           className="btn lark"
-                          onClick={() =>
-                            showToast('Meeting link emailed via Lark (mock).')
-                          }
+                          onClick={async () => {
+                            showToast('Re-sending meeting link…')
+                            try {
+                              await createLarkVideoInvite({
+                                contactName: contact.name,
+                                contactEmail: contact.email,
+                                agentName: currentAgent.name,
+                                existingJoinUrl: larkMeetingUrl,
+                              })
+                              showToast(`Meeting link emailed to ${contact.name}`)
+                            } catch (err) {
+                              showToast(
+                                err instanceof Error
+                                  ? `Couldn't email link: ${err.message}`
+                                  : "Couldn't email link",
+                              )
+                            }
+                          }}
                         >
                           <Mail size={16} />
                           Email link again
@@ -1619,7 +2187,7 @@ export default function App({
                           <button
                             key={b.id}
                             className={`outcome-btn ${dealBrand === b.id ? 'active' : ''}`}
-                            onClick={() => setDealBrand(b.id)}
+                            onClick={() => pickDealBrand(b.id)}
                           >
                             {b.label}
                           </button>
@@ -1627,17 +2195,23 @@ export default function App({
                       </div>
                     </div>
                     <div className="package-grid kit-grid">
-                      {INFO_KITS.filter((k) => k.brandId === dealBrand).map((kit) => (
-                        <button
-                          key={kit.id}
-                          className="package-tile"
-                          onClick={() => sendInfoKit(kit.id)}
-                        >
-                          <strong>{kit.name}</strong>
-                          <span>{kit.blurb}</span>
-                          <em>Send via Lark</em>
-                        </button>
-                      ))}
+                      {infoKits
+                        .filter((k) => k.brandId === dealBrand)
+                        .map((kit) => (
+                          <button
+                            key={kit.id}
+                            className="package-tile"
+                            onClick={() => sendInfoKit(kit.id)}
+                          >
+                            <strong>{kit.name}</strong>
+                            <span>{kit.blurb}</span>
+                            <em>
+                              {kit.packageId
+                                ? `For ${PACKAGES.find((p) => p.id === kit.packageId)?.name ?? 'a package'} · Send via Lark`
+                                : 'Send via Lark'}
+                            </em>
+                          </button>
+                        ))}
                     </div>
                   </div>
 
@@ -1653,6 +2227,35 @@ export default function App({
                         value={emailBody}
                         onChange={(e) => setEmailBody(e.target.value)}
                       />
+                      <div className="attachment-row">
+                        <button
+                          type="button"
+                          className="btn ghost"
+                          onClick={() => attachmentInputRef.current?.click()}
+                        >
+                          <Paperclip size={14} />
+                          Attach files
+                        </button>
+                        {emailAttachments.map((file, i) => (
+                          <span key={`${file.name}-${i}`} className="attachment-chip">
+                            {file.name}
+                            <button
+                              type="button"
+                              onClick={() => removeAttachment(i)}
+                              aria-label={`Remove ${file.name}`}
+                            >
+                              <X size={12} />
+                            </button>
+                          </span>
+                        ))}
+                        <input
+                          ref={attachmentInputRef}
+                          type="file"
+                          multiple
+                          style={{ display: 'none' }}
+                          onChange={handleAttachmentsChange}
+                        />
+                      </div>
                       <div className="btn-row">
                         <button className="btn lark" onClick={sendLarkEmail}>
                           <Mail size={16} />
@@ -1668,6 +2271,82 @@ export default function App({
                         </button>
                       </div>
                     </div>
+                  </div>
+
+                  <div className="card">
+                    <h3>Referral program</h3>
+                    <p className="muted" style={{ marginTop: 0 }}>
+                      Give {contact.name} a code to pass on, or link the code that brought them in.
+                    </p>
+
+                    <div className="deal-section">
+                      <p className="deal-label">Their code to hand out</p>
+                      {outgoingReferral ? (
+                        <div className="btn-row">
+                          <span className="badge">{outgoingReferral.code}</span>
+                          <button
+                            className="btn ghost"
+                            onClick={() => {
+                              navigator.clipboard?.writeText(outgoingReferral.code)
+                              showToast('Code copied.')
+                            }}
+                          >
+                            Copy
+                          </button>
+                        </div>
+                      ) : (
+                        <button className="btn" onClick={handleGenerateReferralCode}>
+                          Generate code
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="deal-section">
+                      <p className="deal-label">Redeem a code they were referred with</p>
+                      <div className="deal-fields" style={{ gridTemplateColumns: '2fr 1fr' }}>
+                        <label>
+                          Referral code
+                          <input
+                            value={redeemCodeDraft}
+                            onChange={(e) => setRedeemCodeDraft(e.target.value)}
+                            placeholder="REF-XXXXXX"
+                            disabled={!!incomingReferral}
+                          />
+                        </label>
+                        <button
+                          className="btn primary"
+                          style={{ alignSelf: 'end' }}
+                          onClick={handleRedeemReferralCode}
+                          disabled={!!incomingReferral}
+                        >
+                          Link
+                        </button>
+                      </div>
+                      {incomingReferral && (
+                        <p className="muted" style={{ marginBottom: 0 }}>
+                          Referred via {incomingReferral.code} · status: {incomingReferral.status}
+                        </p>
+                      )}
+                    </div>
+
+                    {currentAgent.role === 'admin' && incomingReferral && (
+                      <div className="deal-section">
+                        <p className="deal-label">Reward status</p>
+                        <div className="outcomes">
+                          {(['pending', 'referred', 'won', 'rewarded', 'expired'] as ReferralStatus[]).map(
+                            (s) => (
+                              <button
+                                key={s}
+                                className={`outcome-btn ${incomingReferral.status === s ? 'active' : ''}`}
+                                onClick={() => handleSetReferralStatus(incomingReferral.id, s)}
+                              >
+                                {s}
+                              </button>
+                            ),
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1760,7 +2439,7 @@ export default function App({
                         <button
                           key={b.id}
                           className={`outcome-btn ${dealBrand === b.id ? 'active' : ''}`}
-                          onClick={() => setDealBrand(b.id)}
+                          onClick={() => pickDealBrand(b.id)}
                         >
                           {b.label}
                         </button>

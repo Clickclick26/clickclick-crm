@@ -85,6 +85,7 @@ export type Agent = {
   onCallWith?: string
   /** Each salesperson’s own line */
   personalNumberId: string
+  avatarUrl?: string
 }
 
 export const CURRENT_USER: Agent = {
@@ -535,6 +536,9 @@ export type ContractTemplate = {
   payType: PayType
   name: string
   body: string
+  /** The email that goes out with the contract — separate from the contract document body. */
+  emailSubject?: string
+  emailBody?: string
 }
 
 export const CONTRACT_TEMPLATES: ContractTemplate[] = [
@@ -720,6 +724,8 @@ export const BRANDS: { id: BrandId; label: string }[] = [
 export type InfoKit = {
   id: string
   brandId: BrandId
+  /** Scopes the kit to one specific package/product; leave unset for a brand-wide kit. */
+  packageId?: string
   name: string
   blurb: string
   subject: string

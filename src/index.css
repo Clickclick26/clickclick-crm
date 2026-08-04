@@ -169,6 +169,75 @@ button {
   color: var(--ink);
 }
 
+.user-menu {
+  position: relative;
+}
+
+.user-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 190px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+  z-index: 20;
+}
+
+.user-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 14px;
+  background: transparent;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--ink);
+  text-align: left;
+}
+
+.user-menu-item:hover {
+  background: var(--surface-soft);
+}
+
+.user-menu-item.danger {
+  color: var(--pink);
+}
+
+.profile-panel {
+  min-width: 220px;
+}
+
+.profile-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 10px;
+}
+
+.profile-panel-head div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.profile-panel-head strong {
+  font-size: 0.88rem;
+}
+
+.profile-avatar-lg {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--cream-deep);
+}
+
 .shell {
   flex: 1;
   min-height: 0;
@@ -777,6 +846,32 @@ button {
   min-height: 88px;
   resize: vertical;
   border-radius: 18px;
+}
+
+.attachment-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.attachment-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.attachment-chip button {
+  display: flex;
+  align-items: center;
+  background: transparent;
+  color: var(--light);
 }
 
 .btn-row {

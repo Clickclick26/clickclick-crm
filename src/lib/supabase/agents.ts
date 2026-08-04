@@ -4,7 +4,7 @@ import type { Agent } from '../../data/mock'
 export async function fetchAgents(): Promise<Agent[]> {
   const { data, error } = await supabase
     .from('agents')
-    .select('id, name, role, online, on_call_with, personal_number_id')
+    .select('id, name, role, online, on_call_with, personal_number_id, avatar_url')
     .order('name')
 
   if (error) throw error
@@ -16,5 +16,6 @@ export async function fetchAgents(): Promise<Agent[]> {
     online: row.online,
     onCallWith: row.on_call_with ?? undefined,
     personalNumberId: row.personal_number_id ?? '',
+    avatarUrl: row.avatar_url ?? undefined,
   }))
 }
