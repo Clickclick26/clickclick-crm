@@ -1,0 +1,8 @@
+# Edge Functions config for ClickClick CRM Supabase project.
+# Docs: https://supabase.com/docs/guides/functions/function-configuration
+
+[functions.waitlist-ingest]
+# Public waitlist form (static GitHub Pages) cannot send a user JWT.
+# Protection: CORS origin allowlist, honeypot, rate limit, soft validation.
+# Secrets (RESEND_API_KEY, service role) stay server-side only.
+verify_jwt = false

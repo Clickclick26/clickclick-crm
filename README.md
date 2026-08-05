@@ -36,3 +36,7 @@ Do not redesign the UI. Add Telnyx, Supabase, Stripe, GoCardless, e-sign, Lark b
 3. Stripe + GoCardless — pay types  
 4. E-sign + Lark Mail — contracts  
 5. Host on `crm.clickclick.video`  
+
+## CLocal waitlist ingest
+
+See [`docs/clocal-waitlist-ingest.md`](docs/clocal-waitlist-ingest.md) for Resend + Edge Function setup (`waitlist-ingest`).
