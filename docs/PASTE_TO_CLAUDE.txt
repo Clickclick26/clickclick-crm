@@ -1,0 +1,20 @@
+# Paste this to Claude (CRM + Academy)
+
+```
+Two ClickClick projects:
+
+1) CRM — /Users/kathryn/Projects/clickclick-crm
+   Read docs/START_HERE_CLAUDE.md first, then docs/CLAUDE_HANDOFF.md and AGENTS.md.
+   Live: https://clickclick26.github.io/clickclick-crm/
+   UI is locked. Do not redesign.
+
+2) Academy — /Users/kathryn/Projects/clickclick-academy
+   Read CLAUDE.md and README.md first.
+   Live: https://clickclick26.github.io/clickclick-academy/
+   Static site. Packs in packs.json, courses in courses.json.
+   Kathryn code: Clickclick123
+
+DNS (123-reg): CNAME crm + academy → Clickclick26.github.io
+Custom domains: crm.clickclick.video / academy.clickclick.video (after DNS)
+Do not touch clickclick-landing unless asked.
+```

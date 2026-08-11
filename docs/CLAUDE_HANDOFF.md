@@ -1,6 +1,6 @@
 # ClickClick CRM — handoff for Claude (backend)
 
-**Read this before writing any backend code.**
+**Read `docs/START_HERE_CLAUDE.md` first** (hosting, live URLs, code map, Aug 2026 status), then this file before writing backend code.
 
 The frontend UI is intentional and approved. Do **not** redesign it.
 
@@ -294,9 +294,11 @@ Toasts today are mocks — replace with real success/error states without changi
 
 ## Prompt Kathryn can paste to Claude
 
+Prefer the longer prompt at the bottom of **`docs/START_HERE_CLAUDE.md`**. Short version:
+
 ```
 Work in /Users/kathryn/Projects/clickclick-crm.
-Read docs/CLAUDE_HANDOFF.md and AGENTS.md first.
+Read docs/START_HERE_CLAUDE.md, docs/CLAUDE_HANDOFF.md, and AGENTS.md first.
 The frontend UI is approved — do not change index.css layout/branding or redesign App.tsx.
 Add backend behind the existing screens: Telnyx voice, Supabase data, Stripe + GoCardless, e-sign + secure PDF storage, Lark email.
 Put new code under src/lib/. Keep bubble UI and all features listed in the handoff.
@@ -308,9 +310,15 @@ Put new code under src/lib/. Keep bubble UI and all features listed in the hando
 
 | Path | Role |
 |------|------|
+| `docs/START_HERE_CLAUDE.md` | **Start here** — URLs, DNS, deploy, code map |
 | `src/App.tsx` | Full UI (dialer, pipeline, admin, close deal, from-number) |
+| `src/components/AuthGate.tsx` / `Login.tsx` | Auth shell |
 | `src/index.css` | Brand + bubble styles |
 | `src/data/mock.ts` | Types, seed data, `pickBestOutboundNumber` |
-| `public/brand/` | Logos |
+| `src/lib/supabase/` | Supabase client + domain helpers |
+| `src/lib/csv.ts` / `reminders.ts` | CSV import + follow-ups |
+| `public/brand/` | Logos (use `import.meta.env.BASE_URL` on Pages) |
+| `supabase/migrations/` | Schema |
+| `supabase/functions/` | Edge functions (Lark invite; waitlist on feature branch) |
 | `docs/CLAUDE_HANDOFF.md` | This file |
 | `AGENTS.md` | Short agent rules |
