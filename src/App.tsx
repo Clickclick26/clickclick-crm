@@ -327,7 +327,9 @@ export default function App({
     fetchContacts(agents)
       .then((list) => {
         setContacts(list)
-        // Real DB list only — don’t ping on the initial mock seed.
+        // Skip the due-followup ping on the very first run, before agents
+        // have loaded — owner names wouldn't resolve yet, and this effect
+        // re-runs again anyway the moment agents.length changes.
         if (agents.length === 0) return
         const due = dueFollowUpCount(list, isFollowUpDue)
         remindFollowUpsIfNeeded({
@@ -342,7 +344,13 @@ export default function App({
           },
         })
       })
-      .catch((err) => console.error('Failed to load contacts', err))
+      .catch((err) => {
+        console.error('Failed to load contacts', err)
+        // Contacts previously failed silently here — the screen just stayed
+        // empty with nothing telling you it was a failed fetch rather than
+        // "no contacts exist."
+        showToast('Could not load contacts. Check your connection and reload.')
+      })
     // Re-fetch once the real team list lands so contact.owner names resolve correctly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents.length])
@@ -419,6 +427,12 @@ export default function App({
 
   // Load (or start) this contact's deal from Supabase whenever the selected contact changes.
   useEffect(() => {
+    // contact.id === '' means EMPTY_CONTACT (no real contact selected yet —
+    // e.g. contacts haven't loaded from Supabase on first mount). Calling
+    // fetchDealForContact('') sends `contact_id = ''` to Postgres, which
+    // isn't a valid uuid and throws — that's what was producing "Could not
+    // load this deal" on a page that hadn't even loaded a real contact yet.
+    if (!contact.id) return
     let cancelled = false
     setCurrentDealId(null) // pause autosave while (re)loading, avoids saving to the wrong deal
     fetchDealForContact(contact.id)
@@ -879,7 +893,27 @@ export default function App({
     window.setTimeout(() => setToast(null), 2800)
   }
 
+  /** Single save path for contact notes — used by the notes box's onBlur AND
+   * by the "switching contact" flush below, so both stay in sync instead of
+   * duplicating (and risking drifting) the same two lines of save logic. */
+  function saveContactNotes(contactId: string, text: string) {
+    setContacts((prev) => prev.map((c) => (c.id === contactId ? { ...c, notes: text } : c)))
+    return updateContactNotes(contactId, text)
+  }
+
+  /** Switching contact/call overwrites the notes box with the new person's
+   * notes — if there's an unsaved edit for whoever was open, save it first
+   * so it isn't silently discarded. */
+  function flushPendingNotes() {
+    if (contact.id && notes !== contact.notes) {
+      saveContactNotes(contact.id, notes).catch((err) =>
+        console.error('Failed to save notes before switching contact', err),
+      )
+    }
+  }
+
   function selectCall(call: CallRecord) {
+    flushPendingNotes()
     setSelectedCallId(call.id)
     setSelectedContactId(call.contactId)
     const person = contactById(call.contactId)
@@ -897,6 +931,7 @@ export default function App({
   }
 
   function selectContact(person: Contact) {
+    flushPendingNotes()
     setSelectedContactId(person.id)
     setNotes(person.notes)
     setEmailBody(
@@ -1085,12 +1120,21 @@ export default function App({
   }
 
   function moveContactStage(id: string, stage: PipelineStage) {
+    const prevStage = contacts.find((c) => c.id === id)?.stage
     setContacts((prev) => prev.map((c) => (c.id === id ? { ...c, stage } : c)))
-    updateContactStage(id, stage).catch((err) => console.error('Failed to save stage', err))
     const person = contacts.find((c) => c.id === id)
-    showToast(
-      `${person?.name ?? 'Lead'} → ${STAGE_LABEL[stage]}`,
-    )
+    updateContactStage(id, stage)
+      .then(() => showToast(`${person?.name ?? 'Lead'} → ${STAGE_LABEL[stage]}`))
+      .catch((err) => {
+        console.error('Failed to save stage', err)
+        // Roll back the optimistic move — the toast above never fires on
+        // failure now, so don't leave the board showing a stage that was
+        // never actually saved.
+        if (prevStage) {
+          setContacts((prev) => prev.map((c) => (c.id === id ? { ...c, stage: prevStage } : c)))
+        }
+        showToast('Could not move that lead — try again.')
+      })
   }
 
   function shiftContactStage(id: string, direction: -1 | 1) {
@@ -2350,13 +2394,13 @@ export default function App({
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
                       onBlur={() => {
-                        setContacts((prev) =>
-                          prev.map((c) => (c.id === contact.id ? { ...c, notes } : c)),
-                        )
-                        updateContactNotes(contact.id, notes).catch((err) =>
-                          console.error('Failed to save notes', err),
-                        )
-                        showToast('Notes saved.')
+                        if (!contact.id) return
+                        saveContactNotes(contact.id, notes)
+                          .then(() => showToast('Notes saved.'))
+                          .catch((err) => {
+                            console.error('Failed to save notes', err)
+                            showToast('Notes not saved — try again.')
+                          })
                       }}
                     />
                   </div>
