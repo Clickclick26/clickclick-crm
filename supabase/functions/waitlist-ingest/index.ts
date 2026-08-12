@@ -256,7 +256,13 @@ Deno.serve(async (req) => {
     const postcode = normalizePostcode(postcodeRaw)
     const region = inferRegion(postcode)
     const roleTags = roles.map((r) => r.toLowerCase())
-    const tags = Array.from(new Set(["clocal", "waitlist", ...roleTags]))
+    // 'waitlist' and 'newsletter' are separate, non-exclusive CRM list tags —
+    // a signup can be on both, and the Contacts screen filters on each
+    // independently (see contactFilter in App.tsx). Do not merge these into
+    // one tag; Kathryn explicitly wants them as separate lists with overlap.
+    const tags = Array.from(
+      new Set(["clocal", "waitlist", ...(newsletter ? ["newsletter"] : []), ...roleTags]),
+    )
     const notesLine = [
       `Waitlist signup`,
       `postcode: ${postcode}`,

@@ -99,10 +99,18 @@ function mergeNotes(existing: string, incoming: string): string {
   return `${a}\n\n${b}`
 }
 
-/** Import / update contacts from CSV rows. Match on email (case-insensitive). Stage stays new unless already further. */
+/**
+ * Import / update contacts from CSV rows, scoped to one brand. Match on
+ * email (case-insensitive) *within that brand only* — the same person can
+ * legitimately be a ClickClick contact and a CLocal contact under one
+ * email, and matching across brands would merge them into a single row
+ * (same mixing bug fixed in waitlist-ingest; same fix here). Stage stays
+ * new unless already further along.
+ */
 export async function importCsvContacts(
   rows: CsvContactRow[],
   ownerId: string,
+  brandId: BrandId,
 ): Promise<{ inserted: number; updated: number }> {
   if (rows.length === 0) return { inserted: 0, updated: 0 }
 
@@ -124,6 +132,7 @@ export async function importCsvContacts(
         'id, name, company, phone, email, avatar_url, owner_id, stage, source, timezone, quiet_hours, do_not_call, notes, tags, next_callback, region, brand_id',
       )
       .in('email', slice)
+      .eq('brand_id', brandId)
     if (error) throw error
     for (const row of data ?? []) {
       const typed = row as ContactRow
@@ -170,6 +179,7 @@ export async function importCsvContacts(
         tags: row.tag ? [row.tag] : [],
         next_callback: row.nextCallback || null,
         region: 'other',
+        brand_id: brandId,
       })
       inserted++
     }

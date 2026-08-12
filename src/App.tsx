@@ -230,7 +230,12 @@ export default function App({
   const [agents, setAgents] = useState<Agent[]>([currentAgent])
   const [nav, setNav] = useState<NavId>('recents')
   const [filter, setFilter] = useState<'all' | 'missed'>('all')
-  const [contactFilter, setContactFilter] = useState<'all' | 'replied' | 'warmed' | 'due'>('all')
+  // ClickClick tabs are cold-call statuses; CLocal tabs are list membership
+  // (a contact can be on more than one CLocal list at once — e.g. waitlist
+  // AND newsletter — so these are non-exclusive tag filters, not stages).
+  const [contactFilter, setContactFilter] = useState<
+    'all' | 'replied' | 'warmed' | 'due' | 'waitlist' | 'newsletter' | 'cold-outreach'
+  >('all')
   // Which brand's contacts the Contacts list / Pipeline board show. Defaults to
   // ClickClick (the actual sales desk) so CLocal waitlist signups never show up
   // in the dialer queue or sales pipeline unless someone deliberately switches.
@@ -671,6 +676,11 @@ export default function App({
       if (contactFilter === 'replied' && !c.tags.includes('replied')) return false
       if (contactFilter === 'warmed' && !c.tags.includes('warmed')) return false
       if (contactFilter === 'due' && !isFollowUpDue(c.nextCallback)) return false
+      // CLocal list membership — tag-based, not mutually exclusive. A contact
+      // can be on the waitlist AND newsletter-opted-in at the same time.
+      if (contactFilter === 'waitlist' && !c.tags.includes('waitlist')) return false
+      if (contactFilter === 'newsletter' && !c.tags.includes('newsletter')) return false
+      if (contactFilter === 'cold-outreach' && !c.tags.includes('cold-outreach')) return false
       if (!q) return true
       const hay = `${c.name} ${c.company} ${c.phone} ${c.email} ${c.tags.join(' ')}`.toLowerCase()
       return hay.includes(q)
@@ -686,11 +696,16 @@ export default function App({
         showToast(errors[0] ?? 'No people found in that CSV.')
         return
       }
-      const { inserted, updated } = await importCsvContacts(rows, currentAgent.id)
+      // Imports land in whichever brand's tab is currently selected — the
+      // toggle above the upload button is the explicit choice, never a
+      // silent default, so a CLocal list can never land as ClickClick or
+      // vice versa.
+      const { inserted, updated } = await importCsvContacts(rows, currentAgent.id, contactsBrand)
       const fresh = await fetchContacts(agents)
       setContacts(fresh)
+      const brandLabel = BRANDS.find((b) => b.id === contactsBrand)?.label ?? contactsBrand
       const warn = errors.length ? ` · ${errors.length} row warning(s)` : ''
-      showToast(`CSV done: ${inserted} new, ${updated} updated${warn}`)
+      showToast(`CSV done: ${inserted} new, ${updated} updated to ${brandLabel}${warn}`)
       setNav('contacts')
     } catch (err) {
       console.error(err)
@@ -1218,8 +1233,11 @@ export default function App({
                     className="btn ghost csv-upload-btn"
                     disabled={csvImporting}
                     onClick={() => csvInputRef.current?.click()}
+                    title={`Imports into the ${BRANDS.find((b) => b.id === contactsBrand)?.label ?? contactsBrand} list — switch the tab above to change that first`}
                   >
-                    {csvImporting ? 'Uploading…' : 'Upload CSV'}
+                    {csvImporting
+                      ? 'Uploading…'
+                      : `Upload CSV to ${BRANDS.find((b) => b.id === contactsBrand)?.label ?? contactsBrand}`}
                   </button>
                   <input
                     ref={csvInputRef}
@@ -1250,13 +1268,18 @@ export default function App({
               )}
             </div>
             {nav === 'contacts' && (
-              <div className="tabs contact-filter-tabs" title="Sales leads vs CLocal waitlist signups — kept apart on purpose">
+              <div className="tabs contact-filter-tabs" title="Sales leads vs CLocal contacts — kept apart on purpose">
                 {BRANDS.map((b) => (
                   <button
                     key={b.id}
                     type="button"
                     className={`tab ${contactsBrand === b.id ? 'active' : ''}`}
-                    onClick={() => setContactsBrand(b.id)}
+                    onClick={() => {
+                      setContactsBrand(b.id)
+                      // Last brand's filter tab (e.g. "Warmed") isn't valid on
+                      // the other brand's tab set — don't carry it over.
+                      setContactFilter('all')
+                    }}
                   >
                     {b.label}
                   </button>
@@ -1266,12 +1289,19 @@ export default function App({
             {nav === 'contacts' && (
               <div className="tabs contact-filter-tabs">
                 {(
-                  [
-                    ['all', 'All'],
-                    ['replied', 'Replied'],
-                    ['warmed', 'Warmed'],
-                    ['due', dueCount > 0 ? `Due (${dueCount})` : 'Due'],
-                  ] as const
+                  contactsBrand === 'clocal'
+                    ? ([
+                        ['all', 'All'],
+                        ['waitlist', 'Waitlist'],
+                        ['newsletter', 'Newsletter'],
+                        ['cold-outreach', 'Cold outreach'],
+                      ] as const)
+                    : ([
+                        ['all', 'All'],
+                        ['replied', 'Replied'],
+                        ['warmed', 'Warmed'],
+                        ['due', dueCount > 0 ? `Due (${dueCount})` : 'Due'],
+                      ] as const)
                 ).map(([id, label]) => (
                   <button
                     key={id}
@@ -1373,13 +1403,16 @@ export default function App({
                   Move leads with the arrows or stage pills. Opens dialer on click.
                 </p>
               </div>
-              <div className="tabs contact-filter-tabs" title="Sales leads vs CLocal waitlist signups — kept apart on purpose">
+              <div className="tabs contact-filter-tabs" title="Sales leads vs CLocal contacts — kept apart on purpose">
                 {BRANDS.map((b) => (
                   <button
                     key={b.id}
                     type="button"
                     className={`tab ${contactsBrand === b.id ? 'active' : ''}`}
-                    onClick={() => setContactsBrand(b.id)}
+                    onClick={() => {
+                      setContactsBrand(b.id)
+                      setContactFilter('all')
+                    }}
                   >
                     {b.label}
                   </button>
