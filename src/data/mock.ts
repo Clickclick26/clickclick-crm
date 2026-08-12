@@ -30,6 +30,32 @@ export type Contact = {
   brandId: BrandId
 }
 
+/**
+ * Structural fallback only — never demo/placeholder content. Used the instant
+ * before real contacts have loaded from Supabase (or if a selected contact
+ * can't be found), so the UI has a blank `Contact` shape to render instead of
+ * a fake person's name/notes. Replaces the old hardcoded CONTACTS[0] demo
+ * fallback, which is why it existed in the first place — that array is gone.
+ */
+export const EMPTY_CONTACT: Contact = {
+  id: '',
+  name: '',
+  company: '',
+  phone: '',
+  email: '',
+  avatar: '',
+  owner: '',
+  stage: 'new',
+  source: '',
+  timezone: 'Europe/London',
+  quietHours: '',
+  doNotCall: false,
+  notes: '',
+  tags: [],
+  region: 'other',
+  brandId: 'clickclick',
+}
+
 export type PhoneRegion = 'belfast' | 'london' | 'scotland' | 'wales' | 'other'
 
 export type CallRecord = {
@@ -305,125 +331,6 @@ export function pickBestOutboundNumber(opts: {
     reason: 'Auto · brand main',
   }
 }
-
-export const CONTACTS: Contact[] = [
-  {
-    id: 'c1',
-    name: 'Arlene Fisher',
-    company: 'North Star Retail',
-    phone: '020 7946 0115',
-    email: 'arlene@northstar.example',
-    avatar:
-      'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop',
-    owner: 'John Bravo',
-    stage: 'talking',
-    source: 'Website demo',
-    timezone: 'Europe/London',
-    quietHours: '20:00–08:00 local',
-    doNotCall: false,
-    notes:
-      'Warm lead. Liked live commerce demo. Budget around £2k/mo. Decision with ops lead next Tue.',
-    tags: ['retail', 'warm'],
-    nextCallback: 'Tue 11:00',
-    region: 'london',
-    brandId: 'clickclick',
-  },
-  {
-    id: 'c2',
-    name: 'Marcus Hale',
-    company: 'Bright Cart Co',
-    phone: '0141 555 0109',
-    email: 'marcus@brightcart.example',
-    avatar:
-      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop',
-    owner: 'Sara Quinn',
-    stage: 'new',
-    source: 'LinkedIn',
-    timezone: 'Europe/London',
-    quietHours: '21:00–09:00 local',
-    doNotCall: false,
-    notes: 'Asked for pricing sheet. Prefer email follow-up after first call.',
-    tags: ['ecommerce'],
-    region: 'scotland',
-    brandId: 'clickclick',
-  },
-  {
-    id: 'c3',
-    name: 'Priya Desai',
-    company: 'Oak & Vine',
-    phone: '029 2011 0126',
-    email: 'priya@oakvine.example',
-    avatar:
-      'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&h=200&fit=crop',
-    owner: 'Sara Quinn',
-    stage: 'proposal',
-    source: 'Referral',
-    timezone: 'Europe/London',
-    quietHours: '19:00–08:00 local',
-    doNotCall: false,
-    notes: 'Comparing us vs agency retainer. Strong on TikTok live.',
-    tags: ['beauty', 'hot'],
-    region: 'wales',
-    brandId: 'clickclick',
-  },
-  {
-    id: 'c4',
-    name: 'Tom Brennan',
-    company: 'Harbour Foods',
-    phone: '028 9032 0107',
-    email: 'tom@harbour.example',
-    avatar:
-      'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&h=200&fit=crop',
-    owner: 'Mike Chen',
-    stage: 'new',
-    source: 'Trade show',
-    timezone: 'Europe/Dublin',
-    quietHours: '20:00–08:00 local',
-    doNotCall: false,
-    notes: 'Left voicemail twice. Best reach mornings.',
-    tags: ['food'],
-    region: 'belfast',
-    brandId: 'clickclick',
-  },
-  {
-    id: 'c5',
-    name: 'Elena Ruiz',
-    company: 'Studio Lumen',
-    phone: '020 7946 0104',
-    email: 'elena@lumen.example',
-    avatar:
-      'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200&h=200&fit=crop',
-    owner: 'John Bravo',
-    stage: 'lost',
-    source: 'Cold list',
-    timezone: 'Europe/Madrid',
-    quietHours: '20:00–09:00 local',
-    doNotCall: true,
-    notes: 'Asked to be removed from call list. Email OK only.',
-    tags: ['dnc'],
-    region: 'london',
-    brandId: 'clickclick',
-  },
-  {
-    id: 'c6',
-    name: 'James Okafor',
-    company: 'Pulse Media',
-    phone: '028 9024 0124',
-    email: 'james@pulsemedia.example',
-    avatar:
-      'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop',
-    owner: 'Amy Walsh',
-    stage: 'won',
-    source: 'Partner intro',
-    timezone: 'Europe/London',
-    quietHours: '18:00–08:00 local',
-    doNotCall: false,
-    notes: 'Closed Starter plan. Upsell Social Listening in Q3.',
-    tags: ['customer'],
-    region: 'belfast',
-    brandId: 'clickclick',
-  },
-]
 
 export const CALLS: CallRecord[] = [
   {
@@ -868,10 +775,6 @@ export const OUTCOME_LABEL: Record<CallOutcome, string> = {
   not_interested: 'Not interested',
   do_not_call: 'Do not call',
   wrong_number: 'Wrong number',
-}
-
-export function contactById(id: string) {
-  return CONTACTS.find((c) => c.id === id)
 }
 
 export function fillScript(

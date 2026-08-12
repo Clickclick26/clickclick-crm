@@ -46,7 +46,7 @@ import {
 import {
   BRANDS,
   CALLS,
-  CONTACTS,
+  EMPTY_CONTACT,
   CONTRACT_TEMPLATES,
   DEAL_STATUS_LABEL,
   DIALER_LISTS,
@@ -60,7 +60,6 @@ import {
   SCRIPT,
   SEED_CALL_FEEDBACK,
   STAGE_LABEL,
-  contactById as contactByIdStatic,
   fillScript,
   pickBestOutboundNumber,
   type Agent,
@@ -245,7 +244,7 @@ export default function App({
   const [query, setQuery] = useState('')
   const [selectedCallId, setSelectedCallId] = useState(CALLS[0].id)
   const [selectedContactId, setSelectedContactId] = useState(CALLS[0].contactId)
-  const [notes, setNotes] = useState(() => CONTACTS[0].notes)
+  const [notes, setNotes] = useState('')
   const [activeObjection, setActiveObjection] = useState<string | null>(null)
   const [onCall, setOnCall] = useState(false)
   const [muted, setMuted] = useState(false)
@@ -262,8 +261,8 @@ export default function App({
   const [selectedPackages, setSelectedPackages] = useState<string[]>(['cc-starter'])
   const [payType, setPayType] = useState<PayType>('monthly')
   const [dealStatus, setDealStatus] = useState<DealStatus>('draft')
-  const [clientName, setClientName] = useState(CONTACTS[0].name)
-  const [companyName, setCompanyName] = useState(CONTACTS[0].company)
+  const [clientName, setClientName] = useState('')
+  const [companyName, setCompanyName] = useState('')
   const [startDate, setStartDate] = useState('2026-08-10')
   const [endDate, setEndDate] = useState('2027-08-09')
   const [totalPrice, setTotalPrice] = useState('1500')
@@ -301,7 +300,11 @@ export default function App({
   const [editKitSubject, setEditKitSubject] = useState('')
   const [fromMode, setFromMode] = useState<'auto' | 'manual'>('auto')
   const [manualFromId, setManualFromId] = useState<string | null>(null)
-  const [contacts, setContacts] = useState<Contact[]>(CONTACTS)
+  // Starts empty — real contacts arrive via fetchContacts() once auth is
+  // ready (see the effect below). No demo/placeholder fallback data here
+  // on purpose: if the fetch fails, the UI should show empty/an error, not
+  // a fake person, which is exactly the bug this replaced.
+  const [contacts, setContacts] = useState<Contact[]>([])
   const [payConfetti, setPayConfetti] = useState(false)
   const [callFeedback, setCallFeedback] = useState<CallFeedback[]>(SEED_CALL_FEEDBACK)
   const [feedbackDraft, setFeedbackDraft] = useState('')
@@ -362,12 +365,15 @@ export default function App({
   }, [])
 
   function contactById(id: string) {
-    return contacts.find((c) => c.id === id) ?? contactByIdStatic(id)
+    return contacts.find((c) => c.id === id)
   }
 
   const selectedCall = CALLS.find((c) => c.id === selectedCallId) ?? CALLS[0]
+  // EMPTY_CONTACT here (not a demo person) covers the moment before real
+  // contacts have loaded, or a call/contact id that no longer matches a
+  // real row — see EMPTY_CONTACT's doc comment in data/mock.ts.
   const contact =
-    contactById(selectedContactId) ?? contactById(selectedCall.contactId) ?? CONTACTS[0]
+    contactById(selectedContactId) ?? contactById(selectedCall.contactId) ?? EMPTY_CONTACT
 
   const liveAgent = agents.find((a) => a.onCallWith)
 
