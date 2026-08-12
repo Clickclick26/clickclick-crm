@@ -231,6 +231,10 @@ export default function App({
   const [nav, setNav] = useState<NavId>('recents')
   const [filter, setFilter] = useState<'all' | 'missed'>('all')
   const [contactFilter, setContactFilter] = useState<'all' | 'replied' | 'warmed' | 'due'>('all')
+  // Which brand's contacts the Contacts list / Pipeline board show. Defaults to
+  // ClickClick (the actual sales desk) so CLocal waitlist signups never show up
+  // in the dialer queue or sales pipeline unless someone deliberately switches.
+  const [contactsBrand, setContactsBrand] = useState<BrandId>('clickclick')
   const [csvImporting, setCsvImporting] = useState(false)
   const csvInputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
@@ -445,7 +449,10 @@ export default function App({
           setCurrentDealId(created.id)
         })
       })
-      .catch((err) => console.error('Failed to load/create deal', err))
+      .catch((err) => {
+        console.error('Failed to load/create deal', err)
+        if (!cancelled) showToast('Could not load this deal — try reopening the contact.')
+      })
     return () => {
       cancelled = true
     }
@@ -470,7 +477,10 @@ export default function App({
         depositAmount,
         monthlyAmount,
         customNotes,
-      }).catch((err) => console.error('Failed to save deal', err))
+      }).catch((err) => {
+        console.error('Failed to save deal', err)
+        showToast(err instanceof Error ? `Deal not saved: ${err.message}` : 'Deal not saved.')
+      })
     }, 500)
     return () => window.clearTimeout(handle)
   }, [
@@ -657,6 +667,7 @@ export default function App({
   const filteredContacts = useMemo(() => {
     const q = query.toLowerCase()
     return contacts.filter((c) => {
+      if (c.brandId !== contactsBrand) return false
       if (contactFilter === 'replied' && !c.tags.includes('replied')) return false
       if (contactFilter === 'warmed' && !c.tags.includes('warmed')) return false
       if (contactFilter === 'due' && !isFollowUpDue(c.nextCallback)) return false
@@ -664,7 +675,7 @@ export default function App({
       const hay = `${c.name} ${c.company} ${c.phone} ${c.email} ${c.tags.join(' ')}`.toLowerCase()
       return hay.includes(q)
     })
-  }, [contacts, query, contactFilter])
+  }, [contacts, query, contactFilter, contactsBrand])
 
   async function handleCsvFile(file: File) {
     setCsvImporting(true)
@@ -691,12 +702,13 @@ export default function App({
   }
 
   const pipelineColumns = useMemo(() => {
+    const brandContacts = contacts.filter((c) => c.brandId === contactsBrand)
     return PIPELINE_STAGES.map((stage) => ({
       stage,
       label: STAGE_LABEL[stage],
-      items: contacts.filter((c) => c.stage === stage),
+      items: brandContacts.filter((c) => c.stage === stage),
     }))
-  }, [contacts])
+  }, [contacts, contactsBrand])
 
   const activeScript = useMemo(() => {
     const override = agentScripts[currentAgent.id]
@@ -1086,7 +1098,7 @@ export default function App({
         <div className="brand-lockup">
           <img
             className="brand-logo-stacked"
-            src="/brand/clickclick-logo-stacked-black.png"
+            src={`${import.meta.env.BASE_URL}brand/clickclick-logo-stacked-black.png`}
             alt="ClickClick"
           />
           <span className="brand-chip">CRM</span>
@@ -1166,7 +1178,7 @@ export default function App({
         <aside className="sidebar" aria-label="Main">
           <div className="sidebar-logo">
             <img
-              src="/brand/clickclick-logo-full-horizontal.png"
+              src={`${import.meta.env.BASE_URL}brand/clickclick-logo-full-horizontal.png`}
               alt=""
             />
           </div>
@@ -1237,6 +1249,20 @@ export default function App({
                 </div>
               )}
             </div>
+            {nav === 'contacts' && (
+              <div className="tabs contact-filter-tabs" title="Sales leads vs CLocal waitlist signups — kept apart on purpose">
+                {BRANDS.map((b) => (
+                  <button
+                    key={b.id}
+                    type="button"
+                    className={`tab ${contactsBrand === b.id ? 'active' : ''}`}
+                    onClick={() => setContactsBrand(b.id)}
+                  >
+                    {b.label}
+                  </button>
+                ))}
+              </div>
+            )}
             {nav === 'contacts' && (
               <div className="tabs contact-filter-tabs">
                 {(
@@ -1346,6 +1372,18 @@ export default function App({
                 <p className="muted" style={{ margin: 0 }}>
                   Move leads with the arrows or stage pills. Opens dialer on click.
                 </p>
+              </div>
+              <div className="tabs contact-filter-tabs" title="Sales leads vs CLocal waitlist signups — kept apart on purpose">
+                {BRANDS.map((b) => (
+                  <button
+                    key={b.id}
+                    type="button"
+                    className={`tab ${contactsBrand === b.id ? 'active' : ''}`}
+                    onClick={() => setContactsBrand(b.id)}
+                  >
+                    {b.label}
+                  </button>
+                ))}
               </div>
               <div className="pipeline-board">
                 {pipelineColumns.map((col) => (

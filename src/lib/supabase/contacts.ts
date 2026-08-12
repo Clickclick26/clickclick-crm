@@ -1,7 +1,7 @@
 import { supabase } from './client'
 import type { CsvContactRow } from '../csv'
 import type { Database } from './types'
-import type { Agent, Contact, PipelineStage } from '../../data/mock'
+import type { Agent, BrandId, Contact, PipelineStage } from '../../data/mock'
 
 type ContactUpdate = Database['public']['Tables']['contacts']['Update']
 type ContactInsert = Database['public']['Tables']['contacts']['Insert']
@@ -23,6 +23,7 @@ type ContactRow = {
   tags: string[]
   next_callback: string | null
   region: Contact['region']
+  brand_id: BrandId
 }
 
 function toContact(row: ContactRow, agentsById: Map<string, Agent>): Contact {
@@ -43,6 +44,7 @@ function toContact(row: ContactRow, agentsById: Map<string, Agent>): Contact {
     tags: row.tags,
     nextCallback: row.next_callback ?? undefined,
     region: row.region,
+    brandId: row.brand_id,
   }
 }
 
@@ -50,7 +52,7 @@ export async function fetchContacts(agents: Agent[]): Promise<Contact[]> {
   const { data, error } = await supabase
     .from('contacts')
     .select(
-      'id, name, company, phone, email, avatar_url, owner_id, stage, source, timezone, quiet_hours, do_not_call, notes, tags, next_callback, region',
+      'id, name, company, phone, email, avatar_url, owner_id, stage, source, timezone, quiet_hours, do_not_call, notes, tags, next_callback, region, brand_id',
     )
     .order('created_at', { ascending: false })
 
@@ -119,7 +121,7 @@ export async function importCsvContacts(
     const { data, error } = await supabase
       .from('contacts')
       .select(
-        'id, name, company, phone, email, avatar_url, owner_id, stage, source, timezone, quiet_hours, do_not_call, notes, tags, next_callback, region',
+        'id, name, company, phone, email, avatar_url, owner_id, stage, source, timezone, quiet_hours, do_not_call, notes, tags, next_callback, region, brand_id',
       )
       .in('email', slice)
     if (error) throw error

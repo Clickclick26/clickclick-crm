@@ -1,6 +1,23 @@
 import { supabase } from './client'
 import type { BrandId, DealStatus, PayType } from '../../data/mock'
 
+/**
+ * Deal price fields are free-text inputs (e.g. "£1,500"), so `Number(input)` alone can come
+ * back NaN — which silently serializes to `null` over the wire and wipes the price with no
+ * error. Strip common currency formatting first, and reject anything left that isn't a number
+ * instead of saving it as blank.
+ */
+function parseMoney(raw: string, label: string): number | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const cleaned = trimmed.replace(/[£$,\s]/g, '')
+  const value = Number(cleaned)
+  if (!Number.isFinite(value)) {
+    throw new Error(`${label} isn't a number: "${raw}"`)
+  }
+  return value
+}
+
 export type Deal = {
   id: string
   contactId: string
@@ -101,12 +118,11 @@ function toRowPatch(input: Partial<DealInput>) {
   if (input.company !== undefined) row.company = input.company
   if (input.startDate !== undefined) row.start_date = input.startDate || null
   if (input.endDate !== undefined) row.end_date = input.endDate || null
-  if (input.totalPrice !== undefined)
-    row.total_price = input.totalPrice === '' ? null : Number(input.totalPrice)
+  if (input.totalPrice !== undefined) row.total_price = parseMoney(input.totalPrice, 'Total')
   if (input.depositAmount !== undefined)
-    row.deposit_amount = input.depositAmount === '' ? null : Number(input.depositAmount)
+    row.deposit_amount = parseMoney(input.depositAmount, 'Deposit')
   if (input.monthlyAmount !== undefined)
-    row.monthly_amount = input.monthlyAmount === '' ? null : Number(input.monthlyAmount)
+    row.monthly_amount = parseMoney(input.monthlyAmount, 'Monthly amount')
   if (input.customNotes !== undefined) row.custom_notes = input.customNotes
   return row
 }

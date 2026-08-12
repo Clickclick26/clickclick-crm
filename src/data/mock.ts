@@ -26,6 +26,8 @@ export type Contact = {
   nextCallback?: string
   /** Where the lead is — used to auto-pick a local from-number */
   region: PhoneRegion
+  /** ClickClick sales lead vs CLocal waitlist signup — keeps the two off the same pipeline/dialer views. */
+  brandId: BrandId
 }
 
 export type PhoneRegion = 'belfast' | 'london' | 'scotland' | 'wales' | 'other'
@@ -324,6 +326,7 @@ export const CONTACTS: Contact[] = [
     tags: ['retail', 'warm'],
     nextCallback: 'Tue 11:00',
     region: 'london',
+    brandId: 'clickclick',
   },
   {
     id: 'c2',
@@ -342,6 +345,7 @@ export const CONTACTS: Contact[] = [
     notes: 'Asked for pricing sheet. Prefer email follow-up after first call.',
     tags: ['ecommerce'],
     region: 'scotland',
+    brandId: 'clickclick',
   },
   {
     id: 'c3',
@@ -360,6 +364,7 @@ export const CONTACTS: Contact[] = [
     notes: 'Comparing us vs agency retainer. Strong on TikTok live.',
     tags: ['beauty', 'hot'],
     region: 'wales',
+    brandId: 'clickclick',
   },
   {
     id: 'c4',
@@ -378,6 +383,7 @@ export const CONTACTS: Contact[] = [
     notes: 'Left voicemail twice. Best reach mornings.',
     tags: ['food'],
     region: 'belfast',
+    brandId: 'clickclick',
   },
   {
     id: 'c5',
@@ -396,6 +402,7 @@ export const CONTACTS: Contact[] = [
     notes: 'Asked to be removed from call list. Email OK only.',
     tags: ['dnc'],
     region: 'london',
+    brandId: 'clickclick',
   },
   {
     id: 'c6',
@@ -414,6 +421,7 @@ export const CONTACTS: Contact[] = [
     notes: 'Closed Starter plan. Upsell Social Listening in Q3.',
     tags: ['customer'],
     region: 'belfast',
+    brandId: 'clickclick',
   },
 ]
 

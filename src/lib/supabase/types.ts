@@ -49,6 +49,7 @@ export type Database = {
         tags: string[]
         next_callback: string | null
         region: 'belfast' | 'london' | 'scotland' | 'wales' | 'other'
+        brand_id: string
         created_at: string
         updated_at: string
       }>

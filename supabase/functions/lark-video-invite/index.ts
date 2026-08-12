@@ -86,28 +86,55 @@ async function sendInviteEmail(opts: {
   }
 }
 
+// The CRM is invoked cross-origin (github.io / crm.clickclick.video / local dev), and
+// supabase.functions.invoke() sends Authorization + apikey + Content-Type headers, which
+// makes the browser preflight with OPTIONS first. Without CORS headers here, that preflight
+// (and the real response) gets blocked client-side and this feature silently never fires.
+const ALLOWED_ORIGINS = new Set([
+  "https://clickclick26.github.io",
+  "https://crm.clickclick.video",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+])
+
+function corsHeaders(origin: string | null): Record<string, string> {
+  const allow = origin && ALLOWED_ORIGINS.has(origin) ? origin : "https://clickclick26.github.io"
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Max-Age": "86400",
+    "Content-Type": "application/json",
+    Vary: "Origin",
+  }
+}
+
+function json(status: number, body: Record<string, unknown>, origin: string | null) {
+  return new Response(JSON.stringify(body), { status, headers: corsHeaders(origin) })
+}
+
 Deno.serve(async (req) => {
+  const origin = req.headers.get("Origin")
+
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { status: 200, headers: corsHeaders(origin) })
+  }
+
   if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 })
+    return json(405, { error: "Method not allowed" }, origin)
   }
 
   try {
     const body: Body = await req.json()
     if (!body.contactName || !body.contactEmail || !body.agentName) {
-      return new Response(JSON.stringify({ error: "Missing required fields" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      })
+      return json(400, { error: "Missing required fields" }, origin)
     }
 
     const resendKey = Deno.env.get("RESEND_API_KEY")
     const mailFrom = Deno.env.get("MAIL_FROM")
 
     if (!resendKey || !mailFrom) {
-      return new Response(JSON.stringify({ error: "Server not configured" }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      })
+      return json(500, { error: "Server not configured" }, origin)
     }
 
     let joinUrl = body.existingJoinUrl
@@ -116,10 +143,7 @@ Deno.serve(async (req) => {
       const appSecret = Deno.env.get("LARK_APP_SECRET")
       const ownerId = Deno.env.get("LARK_MEETING_OWNER_ID")
       if (!appId || !appSecret || !ownerId) {
-        return new Response(JSON.stringify({ error: "Server not configured" }), {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        })
+        return json(500, { error: "Server not configured" }, origin)
       }
       const accessToken = await getTenantAccessToken(appId, appSecret)
       const topic = `${body.brand ?? "ClickClick"} call with ${body.contactName}`
@@ -135,13 +159,8 @@ Deno.serve(async (req) => {
       joinUrl,
     })
 
-    return new Response(JSON.stringify({ joinUrl }), {
-      headers: { "Content-Type": "application/json" },
-    })
+    return json(200, { joinUrl }, origin)
   } catch (err) {
-    return new Response(JSON.stringify({ error: (err as Error).message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    })
+    return json(500, { error: (err as Error).message }, origin)
   }
 })

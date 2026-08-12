@@ -77,9 +77,10 @@ export async function redeemReferralCode(code: string, referredContactId: string
     .eq('code', code.trim().toUpperCase())
     .is('referred_contact_id', null)
     .select(COLUMNS)
-    .single()
+    .maybeSingle()
 
   if (error) throw error
+  if (!data) throw new Error('That referral code is invalid or already used.')
   return toReferral(data as ReferralRow)
 }
 

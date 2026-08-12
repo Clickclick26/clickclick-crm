@@ -35,7 +35,7 @@ export default function Login() {
       <div className="card auth-card">
         <img
           className="brand-logo-stacked"
-          src="/brand/clickclick-logo-stacked-black.png"
+          src={`${import.meta.env.BASE_URL}brand/clickclick-logo-stacked-black.png`}
           alt="ClickClick"
         />
         <h3 style={{ marginTop: 16 }}>
