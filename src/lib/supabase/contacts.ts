@@ -1,13 +1,13 @@
 import { supabase } from './client'
 import type { CsvContactRow } from '../csv'
 import type { Database } from './types'
-import type { Agent, BrandId, Contact, IndustryCategory, PipelineStage } from '../../data/mock'
+import type { Agent, BrandId, Contact, IndustryCategory, PipelineStage, TpsStatus } from '../../data/mock'
 
 type ContactUpdate = Database['public']['Tables']['contacts']['Update']
 type ContactInsert = Database['public']['Tables']['contacts']['Insert']
 
 const CONTACT_COLUMNS =
-  'id, name, company, phone, email, avatar_url, owner_id, stage, source, timezone, quiet_hours, do_not_call, notes, tags, next_callback, region, brand_id, industry, locality'
+  'id, name, company, phone, email, avatar_url, owner_id, stage, source, timezone, quiet_hours, do_not_call, notes, tags, next_callback, region, brand_id, industry, locality, tps_status, tps_screened_at'
 
 type ContactRow = {
   id: string
@@ -29,6 +29,8 @@ type ContactRow = {
   brand_id: BrandId
   industry: IndustryCategory | null
   locality: string
+  tps_status: TpsStatus
+  tps_screened_at: string | null
 }
 
 function toContact(row: ContactRow, agentsById: Map<string, Agent>): Contact {
@@ -52,6 +54,8 @@ function toContact(row: ContactRow, agentsById: Map<string, Agent>): Contact {
     brandId: row.brand_id,
     industry: row.industry,
     locality: row.locality,
+    tpsStatus: row.tps_status,
+    tpsScreenedAt: row.tps_screened_at ?? undefined,
   }
 }
 
@@ -76,6 +80,23 @@ export async function updateContactCategory(
     .update({ ...patch, updated_at: new Date().toISOString() })
     .eq('id', id)
   if (error) throw error
+}
+
+/**
+ * Screens the given contacts against TPS/CTPS via the screen-tps-ctps edge
+ * function and writes tps_status back onto each row. Returns whether the
+ * screening provider is actually configured yet (PROVERO_API_KEY) — false
+ * means nothing was screened and callers should say so, not pretend it worked.
+ */
+export async function screenContactsForTps(
+  contactIds: string[],
+): Promise<{ configured: boolean; screened: number; failed: number; message?: string }> {
+  if (contactIds.length === 0) return { configured: true, screened: 0, failed: 0 }
+  const { data, error } = await supabase.functions.invoke('screen-tps-ctps', {
+    body: { contactIds },
+  })
+  if (error) throw error
+  return data as { configured: boolean; screened: number; failed: number; message?: string }
 }
 
 export async function updateContactNotes(id: string, notes: string) {
@@ -127,8 +148,8 @@ export async function importCsvContacts(
   rows: CsvContactRow[],
   ownerId: string,
   brandId: BrandId,
-): Promise<{ inserted: number; updated: number }> {
-  if (rows.length === 0) return { inserted: 0, updated: 0 }
+): Promise<{ inserted: number; updated: number; contactIds: string[] }> {
+  if (rows.length === 0) return { inserted: 0, updated: 0, contactIds: [] }
 
   // Last row wins if the same email appears twice in one file.
   const byEmail = new Map<string, CsvContactRow>()
@@ -156,6 +177,7 @@ export async function importCsvContacts(
 
   let inserted = 0
   let updated = 0
+  const contactIds: string[] = []
   const toInsert: ContactInsert[] = []
 
   for (const row of uniqueRows) {
@@ -171,18 +193,20 @@ export async function importCsvContacts(
       }
       if (row.company && !existing.company) patch.company = row.company
       if (row.name && existing.name !== row.name) patch.name = row.name
+      if (row.phone && !existing.phone) patch.phone = row.phone
       if (row.nextCallback) patch.next_callback = row.nextCallback
       if (!existing.source) patch.source = 'email-campaign'
 
       const { error } = await supabase.from('contacts').update(patch).eq('id', existing.id)
       if (error) throw error
       updated++
+      contactIds.push(existing.id)
     } else {
       toInsert.push({
         name: row.name,
         email: key,
         company: row.company,
-        phone: '',
+        phone: row.phone,
         owner_id: ownerId,
         stage: 'new',
         source: 'email-campaign',
@@ -201,11 +225,12 @@ export async function importCsvContacts(
 
   for (let i = 0; i < toInsert.length; i += chunk) {
     const slice = toInsert.slice(i, i + chunk)
-    const { error } = await supabase.from('contacts').insert(slice)
+    const { data, error } = await supabase.from('contacts').insert(slice).select('id')
     if (error) throw error
+    for (const row of data ?? []) contactIds.push((row as { id: string }).id)
   }
 
-  return { inserted, updated }
+  return { inserted, updated, contactIds }
 }
 
 /** True when follow-up date is today or overdue (YYYY-MM-DD). Free-text dates are ignored. */

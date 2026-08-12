@@ -63,6 +63,7 @@ import {
   SEED_CALL_FEEDBACK,
   STAGE_LABEL,
   INDUSTRY_CATEGORIES,
+  TPS_STATUS_LABEL,
   fillScript,
   pickBestOutboundNumber,
   type Agent,
@@ -85,6 +86,7 @@ import {
   fetchContacts,
   importCsvContacts,
   isFollowUpDue,
+  screenContactsForTps,
   updateContactCategory,
   updateContactFollowUp,
   updateContactNotes,
@@ -247,6 +249,7 @@ export default function App({
   // while CLocal happens to be where the real day-to-day activity is today.
   const [contactsBrand, setContactsBrand] = useState<BrandId>('clickclick')
   const [csvImporting, setCsvImporting] = useState(false)
+  const [screeningAll, setScreeningAll] = useState(false)
   const csvInputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
   const [selectedCallId, setSelectedCallId] = useState(CALLS[0].id)
@@ -730,19 +733,84 @@ export default function App({
       // toggle above the upload button is the explicit choice, never a
       // silent default, so a CLocal list can never land as ClickClick or
       // vice versa.
-      const { inserted, updated } = await importCsvContacts(rows, currentAgent.id, contactsBrand)
+      const { inserted, updated, contactIds } = await importCsvContacts(
+        rows,
+        currentAgent.id,
+        contactsBrand,
+      )
       const fresh = await fetchContacts(agents)
       setContacts(fresh)
       const brandLabel = BRANDS.find((b) => b.id === contactsBrand)?.label ?? contactsBrand
       const warn = errors.length ? ` · ${errors.length} row warning(s)` : ''
       showToast(`CSV done: ${inserted} new, ${updated} updated to ${brandLabel}${warn}`)
       setNav('contacts')
+
+      // Screen every uploaded contact against TPS/CTPS automatically — a
+      // number that's on either register can't legally be called for
+      // marketing, public listing or not. Awaited (not fire-and-forget) so
+      // the "screened" toast reflects real completion; fine at solo-agent
+      // upload volumes, worth revisiting (background job) if CSVs get big.
+      try {
+        const result = await screenContactsForTps(contactIds)
+        if (!result.configured) {
+          showToast(result.message ?? 'TPS/CTPS screening not connected yet — see Settings.')
+        } else {
+          showToast(
+            `TPS/CTPS: ${result.screened - result.failed} clear/registered, ${result.failed} failed`,
+          )
+        }
+        setContacts(await fetchContacts(agents))
+      } catch (err) {
+        console.error('TPS/CTPS screening failed', err)
+        showToast('Uploaded, but TPS/CTPS screening failed — try "Screen all" later.')
+      }
     } catch (err) {
       console.error(err)
       showToast('CSV upload failed. Check the file and try again.')
     } finally {
       setCsvImporting(false)
       if (csvInputRef.current) csvInputRef.current.value = ''
+    }
+  }
+
+  /** Screens every contact on the currently-selected brand tab, not just what's visible after search/filter — "screen all" should mean all. */
+  async function handleScreenAll() {
+    const ids = contacts.filter((c) => c.brandId === contactsBrand).map((c) => c.id)
+    if (ids.length === 0) {
+      showToast('No contacts to screen on this tab.')
+      return
+    }
+    setScreeningAll(true)
+    try {
+      const result = await screenContactsForTps(ids)
+      if (!result.configured) {
+        showToast(result.message ?? 'TPS/CTPS screening not connected yet — see Settings.')
+      } else {
+        showToast(
+          `Screened ${result.screened}: ${result.screened - result.failed} checked ok, ${result.failed} failed`,
+        )
+      }
+      setContacts(await fetchContacts(agents))
+    } catch (err) {
+      console.error('Screen all failed', err)
+      showToast('Screening failed. Try again.')
+    } finally {
+      setScreeningAll(false)
+    }
+  }
+
+  async function screenOneContact(id: string) {
+    try {
+      const result = await screenContactsForTps([id])
+      if (!result.configured) {
+        showToast(result.message ?? 'TPS/CTPS screening not connected yet — see Settings.')
+        return
+      }
+      setContacts(await fetchContacts(agents))
+      showToast(result.failed > 0 ? 'Screening failed — try again.' : 'Re-checked.')
+    } catch (err) {
+      console.error('Re-check failed', err)
+      showToast('Re-check failed. Try again.')
     }
   }
 
@@ -959,6 +1027,19 @@ export default function App({
   function startCall() {
     if (contact.doNotCall) {
       showToast('This number is on Do Not Call. Call blocked.')
+      return
+    }
+    // PECR requires TPS/CTPS screening before any unsolicited marketing
+    // call. Unscreened/failed counts as blocked, same as an actual
+    // registration — "clear" is the only status that can dial. Applies to
+    // real phone calls specifically; Lark video invites are a separate
+    // channel from cold-calling.
+    if (callChannel !== 'lark_video' && contact.tpsStatus !== 'clear') {
+      showToast(
+        contact.tpsStatus === 'unscreened'
+          ? 'Not TPS/CTPS screened yet — check "About them" before calling.'
+          : `Call blocked: ${TPS_STATUS_LABEL[contact.tpsStatus]}.`,
+      )
       return
     }
     if (callChannel === 'lark_video') {
@@ -1309,6 +1390,15 @@ export default function App({
                       if (file) void handleCsvFile(file)
                     }}
                   />
+                  <button
+                    type="button"
+                    className="btn ghost csv-upload-btn"
+                    disabled={screeningAll}
+                    onClick={() => void handleScreenAll()}
+                    title="Re-check every contact on this tab against TPS/CTPS"
+                  >
+                    {screeningAll ? 'Screening…' : 'Screen all for TPS/CTPS'}
+                  </button>
                 </>
               ) : (
                 <div className="tabs">
@@ -2222,6 +2312,22 @@ export default function App({
                       <div>
                         <dt>Tags</dt>
                         <dd>{contact.tags.join(', ') || '—'}</dd>
+                      </div>
+                      <div>
+                        <dt>TPS/CTPS</dt>
+                        <dd>
+                          <span className={`tps-badge tps-${contact.tpsStatus}`}>
+                            {TPS_STATUS_LABEL[contact.tpsStatus]}
+                          </span>{' '}
+                          <button
+                            type="button"
+                            className="link-btn"
+                            disabled={screeningAll}
+                            onClick={() => void screenOneContact(contact.id)}
+                          >
+                            Re-check
+                          </button>
+                        </dd>
                       </div>
                       {contact.brandId === 'clocal' && (
                         <div>

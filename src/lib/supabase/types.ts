@@ -52,6 +52,8 @@ export type Database = {
         brand_id: string
         industry: 'Dining' | 'Wellness' | 'Nightlife' | 'Retail' | 'Coffee' | 'Events' | null
         locality: string
+        tps_status: 'unscreened' | 'clear' | 'tps_registered' | 'ctps_registered' | 'check_failed'
+        tps_screened_at: string | null
         created_at: string
         updated_at: string
       }>

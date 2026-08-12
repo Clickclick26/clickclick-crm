@@ -6,6 +6,7 @@ export type CsvContactRow = {
   name: string
   email: string
   company: string
+  phone: string
   tag: 'replied' | 'warmed' | null
   notes: string
   nextCallback: string
@@ -82,10 +83,13 @@ function slugForPlaceholder(name: string, social: string): string {
 
 /**
  * Expected headers (any order; extras ignored):
- * name, email?, company?, tag? (replied|warmed), notes?, follow_up? (YYYY-MM-DD),
+ * name, email?, company?, phone?, tag? (replied|warmed), notes?, follow_up? (YYYY-MM-DD),
  * instagram?, facebook?, ig_message? / dm? / fb_message?
  * Email can be blank if Instagram or Facebook is present (placeholder email is created).
  * Prefer Instagram when both exist; Facebook fills the same outreach block when IG is blank.
+ * phone matters for CLocal-style outreach specifically — it's what TPS/CTPS
+ * screening runs against (see screenContactsForTps); a row with no phone
+ * just can't be screened, same as it can't be called.
  */
 export function parseContactCsv(text: string): { rows: CsvContactRow[]; errors: string[] } {
   const errors: string[] = []
@@ -101,6 +105,7 @@ export function parseContactCsv(text: string): { rows: CsvContactRow[]; errors: 
   const nameI = idx(['name', 'full_name', 'contact'])
   const emailI = idx(['email', 'email_address', 'e_mail'])
   const companyI = idx(['company', 'business', 'organisation', 'organization'])
+  const phoneI = idx(['phone', 'phone_number', 'tel', 'telephone', 'mobile', 'number'])
   const tagI = idx(['tag', 'status', 'list', 'type'])
   const notesI = idx(['notes', 'note', 'campaign', 'comment'])
   const followI = idx(['follow_up', 'followup', 'next_callback', 'callback', 'next_follow_up'])
@@ -164,6 +169,7 @@ export function parseContactCsv(text: string): { rows: CsvContactRow[]; errors: 
       name,
       email,
       company: companyI >= 0 ? (cells[companyI] ?? '').trim() : '',
+      phone: phoneI >= 0 ? (cells[phoneI] ?? '').trim() : '',
       tag,
       notes,
       nextCallback: followI >= 0 ? (cells[followI] ?? '').trim() : '',

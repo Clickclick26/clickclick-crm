@@ -32,6 +32,9 @@ export type Contact = {
   industry: IndustryCategory | null
   /** CLocal outreach only — freeform neighbourhood/area, e.g. "Lisburn Road". */
   locality: string
+  /** PECR TPS/CTPS screening result — 'unscreened' is the safe default and blocks calling. */
+  tpsStatus: TpsStatus
+  tpsScreenedAt?: string
 }
 
 // Deliberately the exact same list as CLocal/constants/categories.ts's
@@ -40,6 +43,16 @@ export type Contact = {
 // businesses actually get categorized once they're live on the app.
 export const INDUSTRY_CATEGORIES = ['Dining', 'Wellness', 'Nightlife', 'Retail', 'Coffee', 'Events'] as const
 export type IndustryCategory = (typeof INDUSTRY_CATEGORIES)[number]
+
+export type TpsStatus = 'unscreened' | 'clear' | 'tps_registered' | 'ctps_registered' | 'check_failed'
+
+export const TPS_STATUS_LABEL: Record<TpsStatus, string> = {
+  unscreened: 'Not screened',
+  clear: 'Clear to call',
+  tps_registered: 'TPS registered — do not call',
+  ctps_registered: 'CTPS registered — do not call',
+  check_failed: 'Screening failed — recheck',
+}
 
 /**
  * Structural fallback only — never demo/placeholder content. Used the instant
@@ -67,6 +80,7 @@ export const EMPTY_CONTACT: Contact = {
   brandId: 'clickclick',
   industry: null,
   locality: '',
+  tpsStatus: 'unscreened',
 }
 
 export type PhoneRegion = 'belfast' | 'london' | 'scotland' | 'wales' | 'other'
