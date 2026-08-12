@@ -235,10 +235,11 @@ export default function App({
   const [contactFilter, setContactFilter] = useState<
     'all' | 'replied' | 'warmed' | 'due' | 'waitlist' | 'newsletter' | 'cold-outreach'
   >('all')
-  // Which brand's contacts the Contacts list / Pipeline board show. Defaults to
-  // ClickClick (the actual sales desk) so CLocal waitlist signups never show up
-  // in the dialer queue or sales pipeline unless someone deliberately switches.
-  const [contactsBrand, setContactsBrand] = useState<BrandId>('clickclick')
+  // Which brand's contacts the Contacts list / Pipeline board show. Defaults
+  // to CLocal — that's the actual day-to-day use of this CRM right now
+  // (every real contact here is CLocal cold outreach); ClickClick still
+  // exists as a tab for when that becomes real too.
+  const [contactsBrand, setContactsBrand] = useState<BrandId>('clocal')
   const [csvImporting, setCsvImporting] = useState(false)
   const csvInputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
