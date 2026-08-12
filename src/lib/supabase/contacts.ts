@@ -1,10 +1,13 @@
 import { supabase } from './client'
 import type { CsvContactRow } from '../csv'
 import type { Database } from './types'
-import type { Agent, BrandId, Contact, PipelineStage } from '../../data/mock'
+import type { Agent, BrandId, Contact, IndustryCategory, PipelineStage } from '../../data/mock'
 
 type ContactUpdate = Database['public']['Tables']['contacts']['Update']
 type ContactInsert = Database['public']['Tables']['contacts']['Insert']
+
+const CONTACT_COLUMNS =
+  'id, name, company, phone, email, avatar_url, owner_id, stage, source, timezone, quiet_hours, do_not_call, notes, tags, next_callback, region, brand_id, industry, locality'
 
 type ContactRow = {
   id: string
@@ -24,6 +27,8 @@ type ContactRow = {
   next_callback: string | null
   region: Contact['region']
   brand_id: BrandId
+  industry: IndustryCategory | null
+  locality: string
 }
 
 function toContact(row: ContactRow, agentsById: Map<string, Agent>): Contact {
@@ -45,21 +50,32 @@ function toContact(row: ContactRow, agentsById: Map<string, Agent>): Contact {
     nextCallback: row.next_callback ?? undefined,
     region: row.region,
     brandId: row.brand_id,
+    industry: row.industry,
+    locality: row.locality,
   }
 }
 
 export async function fetchContacts(agents: Agent[]): Promise<Contact[]> {
   const { data, error } = await supabase
     .from('contacts')
-    .select(
-      'id, name, company, phone, email, avatar_url, owner_id, stage, source, timezone, quiet_hours, do_not_call, notes, tags, next_callback, region, brand_id',
-    )
+    .select(CONTACT_COLUMNS)
     .order('created_at', { ascending: false })
 
   if (error) throw error
 
   const agentsById = new Map(agents.map((a) => [a.id, a]))
   return (data ?? []).map((row) => toContact(row as ContactRow, agentsById))
+}
+
+export async function updateContactCategory(
+  id: string,
+  patch: { industry?: IndustryCategory | null; locality?: string },
+) {
+  const { error } = await supabase
+    .from('contacts')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
 }
 
 export async function updateContactNotes(id: string, notes: string) {
@@ -128,9 +144,7 @@ export async function importCsvContacts(
     const slice = emails.slice(i, i + chunk)
     const { data, error } = await supabase
       .from('contacts')
-      .select(
-        'id, name, company, phone, email, avatar_url, owner_id, stage, source, timezone, quiet_hours, do_not_call, notes, tags, next_callback, region, brand_id',
-      )
+      .select(CONTACT_COLUMNS)
       .in('email', slice)
       .eq('brand_id', brandId)
     if (error) throw error

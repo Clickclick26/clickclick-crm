@@ -50,6 +50,8 @@ export type Database = {
         next_callback: string | null
         region: 'belfast' | 'london' | 'scotland' | 'wales' | 'other'
         brand_id: string
+        industry: 'Dining' | 'Wellness' | 'Nightlife' | 'Retail' | 'Coffee' | 'Events' | null
+        locality: string
         created_at: string
         updated_at: string
       }>

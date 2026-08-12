@@ -62,6 +62,7 @@ import {
   SCRIPT,
   SEED_CALL_FEEDBACK,
   STAGE_LABEL,
+  INDUSTRY_CATEGORIES,
   fillScript,
   pickBestOutboundNumber,
   type Agent,
@@ -72,6 +73,7 @@ import {
   type Contact,
   type ContractTemplate,
   type DealStatus,
+  type IndustryCategory,
   type InfoKit,
   type PayType,
   type PipelineStage,
@@ -83,6 +85,7 @@ import {
   fetchContacts,
   importCsvContacts,
   isFollowUpDue,
+  updateContactCategory,
   updateContactFollowUp,
   updateContactNotes,
   updateContactStage,
@@ -235,6 +238,9 @@ export default function App({
   const [contactFilter, setContactFilter] = useState<
     'all' | 'replied' | 'warmed' | 'due' | 'waitlist' | 'newsletter' | 'cold-outreach'
   >('all')
+  // Industry filter — CLocal only, independent of contactFilter above (a
+  // contact's list membership and its business category are unrelated axes).
+  const [categoryFilter, setCategoryFilter] = useState<'all' | IndustryCategory>('all')
   // Which brand's contacts the Contacts list / Pipeline board show. Defaults
   // to ClickClick — it's the parent company (Kathryn's call), and more
   // brands land here after CLocal, so ClickClick stays the home base even
@@ -702,11 +708,14 @@ export default function App({
       if (contactFilter === 'waitlist' && !c.tags.includes('waitlist')) return false
       if (contactFilter === 'newsletter' && !c.tags.includes('newsletter')) return false
       if (contactFilter === 'cold-outreach' && !c.tags.includes('cold-outreach')) return false
+      if (contactsBrand === 'clocal' && categoryFilter !== 'all' && c.industry !== categoryFilter)
+        return false
       if (!q) return true
-      const hay = `${c.name} ${c.company} ${c.phone} ${c.email} ${c.tags.join(' ')}`.toLowerCase()
+      const hay =
+        `${c.name} ${c.company} ${c.phone} ${c.email} ${c.tags.join(' ')} ${c.industry ?? ''} ${c.locality}`.toLowerCase()
       return hay.includes(q)
     })
-  }, [contacts, query, contactFilter, contactsBrand])
+  }, [contacts, query, contactFilter, contactsBrand, categoryFilter])
 
   async function handleCsvFile(file: File) {
     setCsvImporting(true)
@@ -1330,6 +1339,7 @@ export default function App({
                       // Last brand's filter tab (e.g. "Warmed") isn't valid on
                       // the other brand's tab set — don't carry it over.
                       setContactFilter('all')
+                      setCategoryFilter('all')
                     }}
                   >
                     {b.label}
@@ -1361,6 +1371,27 @@ export default function App({
                     onClick={() => setContactFilter(id)}
                   >
                     {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {nav === 'contacts' && contactsBrand === 'clocal' && (
+              <div className="tabs contact-filter-tabs" title="Filter by business category">
+                <button
+                  type="button"
+                  className={`tab ${categoryFilter === 'all' ? 'active' : ''}`}
+                  onClick={() => setCategoryFilter('all')}
+                >
+                  All categories
+                </button>
+                {INDUSTRY_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    className={`tab ${categoryFilter === cat ? 'active' : ''}`}
+                    onClick={() => setCategoryFilter(cat)}
+                  >
+                    {cat}
                   </button>
                 ))}
               </div>
@@ -1452,6 +1483,7 @@ export default function App({
               onBrandChange={(id) => {
                 setContactsBrand(id)
                 setContactFilter('all')
+                setCategoryFilter('all')
               }}
               pipelineColumns={pipelineColumns}
               onOpenContact={(person) => {
@@ -2191,6 +2223,61 @@ export default function App({
                         <dt>Tags</dt>
                         <dd>{contact.tags.join(', ') || '—'}</dd>
                       </div>
+                      {contact.brandId === 'clocal' && (
+                        <div>
+                          <dt>Category</dt>
+                          <dd>
+                            <select
+                              className="followup-date"
+                              value={contact.industry ?? ''}
+                              onChange={(e) => {
+                                const value = (e.target.value || null) as IndustryCategory | null
+                                setContacts((prev) =>
+                                  prev.map((c) =>
+                                    c.id === contact.id ? { ...c, industry: value } : c,
+                                  ),
+                                )
+                                updateContactCategory(contact.id, { industry: value }).catch(
+                                  (err) => console.error('Failed to save category', err),
+                                )
+                              }}
+                            >
+                              <option value="">— Uncategorised —</option>
+                              {INDUSTRY_CATEGORIES.map((cat) => (
+                                <option key={cat} value={cat}>
+                                  {cat}
+                                </option>
+                              ))}
+                            </select>
+                          </dd>
+                        </div>
+                      )}
+                      {contact.brandId === 'clocal' && (
+                        <div>
+                          <dt>Area</dt>
+                          <dd>
+                            <input
+                              key={contact.id}
+                              type="text"
+                              className="followup-date"
+                              placeholder="e.g. Lisburn Road"
+                              defaultValue={contact.locality}
+                              onBlur={(e) => {
+                                const value = e.target.value.trim()
+                                if (value === contact.locality) return
+                                setContacts((prev) =>
+                                  prev.map((c) =>
+                                    c.id === contact.id ? { ...c, locality: value } : c,
+                                  ),
+                                )
+                                updateContactCategory(contact.id, { locality: value }).catch(
+                                  (err) => console.error('Failed to save area', err),
+                                )
+                              }}
+                            />
+                          </dd>
+                        </div>
+                      )}
                       <div>
                         <dt>Follow-up</dt>
                         <dd>

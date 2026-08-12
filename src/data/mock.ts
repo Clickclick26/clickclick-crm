@@ -28,7 +28,18 @@ export type Contact = {
   region: PhoneRegion
   /** ClickClick sales lead vs CLocal waitlist signup — keeps the two off the same pipeline/dialer views. */
   brandId: BrandId
+  /** CLocal outreach only — one of INDUSTRY_CATEGORIES, or null/unset. */
+  industry: IndustryCategory | null
+  /** CLocal outreach only — freeform neighbourhood/area, e.g. "Lisburn Road". */
+  locality: string
 }
+
+// Deliberately the exact same list as CLocal/constants/categories.ts's
+// FILTER_CATEGORIES, not a parallel taxonomy — that file's own comment says
+// not to invent one, and it keeps CRM outreach data lined up with how these
+// businesses actually get categorized once they're live on the app.
+export const INDUSTRY_CATEGORIES = ['Dining', 'Wellness', 'Nightlife', 'Retail', 'Coffee', 'Events'] as const
+export type IndustryCategory = (typeof INDUSTRY_CATEGORIES)[number]
 
 /**
  * Structural fallback only — never demo/placeholder content. Used the instant
@@ -54,6 +65,8 @@ export const EMPTY_CONTACT: Contact = {
   tags: [],
   region: 'other',
   brandId: 'clickclick',
+  industry: null,
+  locality: '',
 }
 
 export type PhoneRegion = 'belfast' | 'london' | 'scotland' | 'wales' | 'other'
