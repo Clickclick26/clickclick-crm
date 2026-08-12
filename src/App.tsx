@@ -236,10 +236,10 @@ export default function App({
     'all' | 'replied' | 'warmed' | 'due' | 'waitlist' | 'newsletter' | 'cold-outreach'
   >('all')
   // Which brand's contacts the Contacts list / Pipeline board show. Defaults
-  // to CLocal — that's the actual day-to-day use of this CRM right now
-  // (every real contact here is CLocal cold outreach); ClickClick still
-  // exists as a tab for when that becomes real too.
-  const [contactsBrand, setContactsBrand] = useState<BrandId>('clocal')
+  // to ClickClick — it's the parent company (Kathryn's call), and more
+  // brands land here after CLocal, so ClickClick stays the home base even
+  // while CLocal happens to be where the real day-to-day activity is today.
+  const [contactsBrand, setContactsBrand] = useState<BrandId>('clickclick')
   const [csvImporting, setCsvImporting] = useState(false)
   const csvInputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
