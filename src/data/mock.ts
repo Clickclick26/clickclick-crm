@@ -760,6 +760,11 @@ export const DEAL_STATUS_LABEL: Record<DealStatus, string> = {
   closed: 'Closed',
 }
 
+// Was a local const duplicated inside App.tsx; moved here alongside
+// STAGE_LABEL/PipelineStage so PipelineScreen.tsx can use it too without
+// App.tsx needing to export internal constants.
+export const PIPELINE_STAGES: PipelineStage[] = ['new', 'talking', 'proposal', 'won', 'lost']
+
 export const STAGE_LABEL: Record<PipelineStage, string> = {
   new: 'New',
   talking: 'Talking',

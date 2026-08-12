@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import LottieImport from 'lottie-react'
 import confettiAnimation from './assets/confetti.json'
+import { ListsScreen } from './components/screens/ListsScreen'
+import { ReportsScreen } from './components/screens/ReportsScreen'
+import { PipelineScreen } from './components/screens/PipelineScreen'
 
 // Vite ESM interop: default export is often `{ default: Component }`.
 const Lottie =
@@ -29,8 +32,6 @@ import {
   CreditCard,
   Landmark,
   Columns3,
-  ChevronLeft,
-  ChevronRight,
   Play,
   VolumeX,
   Video,
@@ -56,6 +57,7 @@ import {
   OUTBOUND_NUMBERS,
   PACKAGES,
   PAY_TYPES,
+  PIPELINE_STAGES,
   REGION_LABEL,
   SCRIPT,
   SEED_CALL_FEEDBACK,
@@ -118,8 +120,6 @@ type NavId =
   | 'lists'
   | 'reports'
   | 'settings'
-
-const PIPELINE_STAGES: PipelineStage[] = ['new', 'talking', 'proposal', 'won', 'lost']
 
 const DEFAULT_CONTRACT_EMAIL_SUBJECT = 'Your contract from {{brand}}'
 const DEFAULT_CONTRACT_EMAIL_BODY = `Hi {{client_name}},
@@ -1446,155 +1446,31 @@ export default function App({
 
         <main className={`main ${showPanel ? '' : 'wide'}`.trim()}>
           {nav === 'pipeline' && (
-            <div className="lists-view pipeline-view">
-              <div className="pipeline-head">
-                <h2>Pipeline</h2>
-                <p className="muted" style={{ margin: 0 }}>
-                  Move leads with the arrows or stage pills. Opens dialer on click.
-                </p>
-              </div>
-              <div className="tabs contact-filter-tabs" title="Sales leads vs CLocal contacts — kept apart on purpose">
-                {BRANDS.map((b) => (
-                  <button
-                    key={b.id}
-                    type="button"
-                    className={`tab ${contactsBrand === b.id ? 'active' : ''}`}
-                    onClick={() => {
-                      setContactsBrand(b.id)
-                      setContactFilter('all')
-                    }}
-                  >
-                    {b.label}
-                  </button>
-                ))}
-              </div>
-              <div className="pipeline-board">
-                {pipelineColumns.map((col) => (
-                  <section key={col.stage} className={`pipeline-col stage-${col.stage}`}>
-                    <header className="pipeline-col-head">
-                      <h3>{col.label}</h3>
-                      <span>{col.items.length}</span>
-                    </header>
-                    <div className="pipeline-col-body">
-                      {col.items.map((person) => (
-                        <article key={person.id} className="pipeline-card">
-                          <button
-                            className="pipeline-card-main"
-                            onClick={() => {
-                              selectContact(person)
-                              setNav('recents')
-                            }}
-                          >
-                            <img src={person.avatar} alt="" />
-                            <div>
-                              <strong>{person.name}</strong>
-                              <span>{person.company}</span>
-                              <em>{person.phone}</em>
-                            </div>
-                          </button>
-                          <div className="pipeline-card-actions">
-                            <button
-                              className="icon-btn"
-                              title="Move back"
-                              disabled={col.stage === 'new'}
-                              onClick={() => shiftContactStage(person.id, -1)}
-                            >
-                              <ChevronLeft size={16} />
-                            </button>
-                            <button
-                              className="icon-btn"
-                              title="Move forward"
-                              disabled={col.stage === 'lost'}
-                              onClick={() => shiftContactStage(person.id, 1)}
-                            >
-                              <ChevronRight size={16} />
-                            </button>
-                          </div>
-                          <div className="pipeline-stage-pills">
-                            {PIPELINE_STAGES.map((stage) => (
-                              <button
-                                key={stage}
-                                className={`mini-stage ${person.stage === stage ? 'active' : ''}`}
-                                onClick={() => moveContactStage(person.id, stage)}
-                              >
-                                {STAGE_LABEL[stage]}
-                              </button>
-                            ))}
-                          </div>
-                        </article>
-                      ))}
-                      {col.items.length === 0 && (
-                        <p className="pipeline-empty">No one here</p>
-                      )}
-                    </div>
-                  </section>
-                ))}
-              </div>
-            </div>
+            <PipelineScreen
+              contactsBrand={contactsBrand}
+              onBrandChange={(id) => {
+                setContactsBrand(id)
+                setContactFilter('all')
+              }}
+              pipelineColumns={pipelineColumns}
+              onOpenContact={(person) => {
+                selectContact(person)
+                setNav('recents')
+              }}
+              onShiftStage={shiftContactStage}
+              onMoveStage={moveContactStage}
+            />
           )}
 
           {nav === 'lists' && (
-            <div className="lists-view">
-              <h2>Dialer lists</h2>
-              <div className="dialer-list">
-                {DIALER_LISTS.map((list) => (
-                  <button
-                    key={list.id}
-                    className={`dialer-list-item ${activeList === list.id ? 'active' : ''}`}
-                    onClick={() => {
-                      setActiveList(list.id)
-                      showToast(`Opened list: ${list.name}`)
-                    }}
-                  >
-                    <span aria-hidden>{list.emoji}</span>
-                    {list.name}
-                    <span>({list.count})</span>
-                  </button>
-                ))}
-                <button
-                  className="create-list"
-                  onClick={() => showToast('Create list — wire to database next.')}
-                >
-                  + Create new list
-                </button>
-              </div>
-            </div>
+            <ListsScreen
+              activeList={activeList}
+              onSelectList={setActiveList}
+              onToast={showToast}
+            />
           )}
 
-          {nav === 'reports' && (
-            <div className="lists-view">
-              <h2>Today’s numbers</h2>
-              <div className="reports-grid">
-                <div className="stat">
-                  <div className="label">Calls</div>
-                  <div className="value">42</div>
-                </div>
-                <div className="stat">
-                  <div className="label">Talk time</div>
-                  <div className="value">6.2h</div>
-                </div>
-                <div className="stat">
-                  <div className="label">Close rate</div>
-                  <div className="value">18%</div>
-                </div>
-                <div className="stat">
-                  <div className="label">Callbacks due</div>
-                  <div className="value">9</div>
-                </div>
-                <div className="stat">
-                  <div className="label">DNC list</div>
-                  <div className="value">11</div>
-                </div>
-                <div className="stat">
-                  <div className="label">Agents online</div>
-                  <div className="value">{agents.filter((a) => a.online).length}</div>
-                </div>
-              </div>
-              <p className="muted" style={{ marginTop: 16 }}>
-                Real stats will come from call logs once Twilio + Supabase are plugged in.
-              </p>
-            </div>
-          )}
+          {nav === 'reports' && <ReportsScreen agents={agents} />}
 
           {nav === 'settings' && (
             <div className="lists-view admin-settings">
