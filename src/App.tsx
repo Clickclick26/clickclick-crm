@@ -4,6 +4,7 @@ import confettiAnimation from './assets/confetti.json'
 import { ListsScreen } from './components/screens/ListsScreen'
 import { ReportsScreen } from './components/screens/ReportsScreen'
 import { PipelineScreen } from './components/screens/PipelineScreen'
+import { NewContactForm, type NewContactDraft } from './components/contacts/NewContactForm'
 
 // Vite ESM interop: default export is often `{ default: Component }`.
 const Lottie =
@@ -43,6 +44,7 @@ import {
   MessageCircle,
   Copy,
   ExternalLink,
+  UserPlus,
 } from 'lucide-react'
 import {
   BRANDS,
@@ -83,15 +85,18 @@ import { fetchAgents } from './lib/supabase/agents'
 import { parseContactCsv } from './lib/csv'
 import { parseInstagramBlock } from './lib/instagram'
 import {
+  createContact,
   fetchContacts,
   importCsvContacts,
   isFollowUpDue,
   screenContactsForTps,
   updateContactCategory,
+  updateContactDetails,
   updateContactFollowUp,
   updateContactNotes,
   updateContactStage,
 } from './lib/supabase/contacts'
+import { upsertLinkedinInNotes } from './lib/linkedin'
 import {
   dueFollowUpCount,
   ensureNotifyPermission,
@@ -250,6 +255,8 @@ export default function App({
   const [contactsBrand, setContactsBrand] = useState<BrandId>('clickclick')
   const [csvImporting, setCsvImporting] = useState(false)
   const [screeningAll, setScreeningAll] = useState(false)
+  const [composingNew, setComposingNew] = useState(false)
+  const [savingContact, setSavingContact] = useState(false)
   const csvInputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
   const [selectedCallId, setSelectedCallId] = useState(CALLS[0].id)
@@ -715,7 +722,7 @@ export default function App({
         return false
       if (!q) return true
       const hay =
-        `${c.name} ${c.company} ${c.phone} ${c.email} ${c.tags.join(' ')} ${c.industry ?? ''} ${c.locality}`.toLowerCase()
+        `${c.name} ${c.company} ${c.phone} ${c.email} ${c.tags.join(' ')} ${c.industry ?? ''} ${c.locality} ${c.linkedinUrl}`.toLowerCase()
       return hay.includes(q)
     })
   }, [contacts, query, contactFilter, contactsBrand, categoryFilter])
@@ -797,6 +804,133 @@ export default function App({
     } finally {
       setScreeningAll(false)
     }
+  }
+
+  function defaultTagsForNewContact(): string[] {
+    if (
+      contactFilter === 'waitlist' ||
+      contactFilter === 'newsletter' ||
+      contactFilter === 'cold-outreach' ||
+      contactFilter === 'replied' ||
+      contactFilter === 'warmed'
+    ) {
+      return [contactFilter]
+    }
+    return []
+  }
+
+  async function handleCreateContact(draft: NewContactDraft, addAnother: boolean) {
+    if (!draft.name) {
+      showToast('Name is required.')
+      return
+    }
+    setSavingContact(true)
+    try {
+      const result = await createContact(
+        {
+          name: draft.name,
+          company: draft.company,
+          email: draft.email,
+          phone: draft.phone,
+          notes: draft.notes,
+          tags: draft.tags,
+          brandId: draft.brandId,
+          ownerId: currentAgent.id,
+          linkedinUrl: draft.linkedinUrl,
+        },
+        agents,
+      )
+      if (!result.ok) {
+        const existing = contacts.find((c) => c.id === result.duplicateId)
+        showToast(
+          existing
+            ? `${existing.name} already has that email on this brand.`
+            : 'That email is already on this brand.',
+        )
+        setContactsBrand(draft.brandId)
+        setContactFilter('all')
+        const fresh = existing ? contacts : await fetchContacts(agents)
+        if (!existing) setContacts(fresh)
+        const person = (existing ? [existing] : fresh).find((c) => c.id === result.duplicateId)
+        if (person) selectContact(person)
+        return
+      }
+
+      setContacts((prev) => [result.contact, ...prev.filter((c) => c.id !== result.contact.id)])
+      setContactsBrand(draft.brandId)
+      const stillVisible =
+        draft.tags.length === 0 ||
+        contactFilter === 'all' ||
+        contactFilter === 'due' ||
+        draft.tags.includes(contactFilter)
+      if (!stillVisible || contactsBrand !== draft.brandId) {
+        setContactFilter('all')
+      }
+
+      if (draft.phone) {
+        try {
+          const screened = await screenContactsForTps([result.contact.id])
+          if (screened.configured) {
+            setContacts(await fetchContacts(agents))
+          }
+        } catch (err) {
+          console.error('TPS screen after add failed', err)
+        }
+      }
+
+      if (addAnother) {
+        showToast(`Saved ${result.contact.name}. Add the next one.`)
+        return
+      }
+      selectContact(result.contact)
+      showToast(`Saved ${result.contact.name}.`)
+    } catch (err) {
+      console.error(err)
+      showToast('Could not save that person. Try again.')
+    } finally {
+      setSavingContact(false)
+    }
+  }
+
+  function saveContactField(
+    person: Contact,
+    patch: { name?: string; company?: string; phone?: string; email?: string; tags?: string[] },
+  ) {
+    const next = { ...person, ...patch }
+    if (patch.phone !== undefined && patch.phone !== person.phone) {
+      next.tpsStatus = 'unscreened'
+      next.tpsScreenedAt = undefined
+    }
+    setContacts((prev) => prev.map((c) => (c.id === person.id ? next : c)))
+    updateContactDetails(person.id, patch).catch((err) => {
+      console.error('Failed to save contact', err)
+      showToast('Could not save — try again.')
+    })
+  }
+
+  function saveContactLinkedin(person: Contact, url: string) {
+    const notesWithUrl = upsertLinkedinInNotes(person.notes, url)
+    setNotes(notesWithUrl)
+    setContacts((prev) =>
+      prev.map((c) =>
+        c.id === person.id ? { ...c, linkedinUrl: url.trim(), notes: notesWithUrl } : c,
+      ),
+    )
+    updateContactDetails(person.id, { linkedinUrl: url, currentNotes: person.notes }).catch(
+      (err) => {
+        console.error('Failed to save LinkedIn', err)
+        showToast('Could not save LinkedIn — try again.')
+      },
+    )
+  }
+
+  function toggleContactListTag(person: Contact, tag: string) {
+    let next = person.tags.includes(tag)
+      ? person.tags.filter((t) => t !== tag)
+      : [...person.tags, tag]
+    if (tag === 'replied') next = next.filter((t) => t !== 'warmed')
+    if (tag === 'warmed') next = next.filter((t) => t !== 'replied')
+    saveContactField(person, { tags: next })
   }
 
   async function screenOneContact(id: string) {
@@ -1010,6 +1144,7 @@ export default function App({
 
   function selectContact(person: Contact) {
     flushPendingNotes()
+    setComposingNew(false)
     setSelectedContactId(person.id)
     setNotes(person.notes)
     setEmailBody(
@@ -1369,36 +1504,49 @@ export default function App({
               {nav === 'contacts' ? (
                 <>
                   <h2>Contacts</h2>
-                  <button
-                    type="button"
-                    className="btn ghost csv-upload-btn"
-                    disabled={csvImporting}
-                    onClick={() => csvInputRef.current?.click()}
-                    title={`Imports into the ${BRANDS.find((b) => b.id === contactsBrand)?.label ?? contactsBrand} list — switch the tab above to change that first`}
-                  >
-                    {csvImporting
-                      ? 'Uploading…'
-                      : `Upload CSV to ${BRANDS.find((b) => b.id === contactsBrand)?.label ?? contactsBrand}`}
-                  </button>
-                  <input
-                    ref={csvInputRef}
-                    type="file"
-                    accept=".csv,text/csv"
-                    hidden
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) void handleCsvFile(file)
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="btn ghost csv-upload-btn"
-                    disabled={screeningAll}
-                    onClick={() => void handleScreenAll()}
-                    title="Re-check every contact on this tab against TPS/CTPS"
-                  >
-                    {screeningAll ? 'Screening…' : 'Screen all for TPS/CTPS'}
-                  </button>
+                  <div className="panel-head-actions">
+                    <button
+                      type="button"
+                      className="btn ghost csv-upload-btn"
+                      onClick={() => {
+                        setComposingNew(true)
+                        setNav('contacts')
+                      }}
+                    >
+                      <UserPlus size={14} />
+                      New contact
+                    </button>
+                    <button
+                      type="button"
+                      className="btn ghost csv-upload-btn"
+                      disabled={csvImporting}
+                      onClick={() => csvInputRef.current?.click()}
+                      title={`Imports into the ${BRANDS.find((b) => b.id === contactsBrand)?.label ?? contactsBrand} list — switch the tab above to change that first`}
+                    >
+                      {csvImporting
+                        ? 'Uploading…'
+                        : `Upload CSV to ${BRANDS.find((b) => b.id === contactsBrand)?.label ?? contactsBrand}`}
+                    </button>
+                    <input
+                      ref={csvInputRef}
+                      type="file"
+                      accept=".csv,text/csv"
+                      hidden
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) void handleCsvFile(file)
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn ghost csv-upload-btn"
+                      disabled={screeningAll}
+                      onClick={() => void handleScreenAll()}
+                      title="Re-check every contact on this tab against TPS/CTPS"
+                    >
+                      {screeningAll ? 'Screening…' : 'Screen all for TPS/CTPS'}
+                    </button>
+                  </div>
                 </>
               ) : (
                 <div className="tabs">
@@ -1560,7 +1708,13 @@ export default function App({
                   })}
               {((nav === 'contacts' && filteredContacts.length === 0) ||
                 (nav !== 'contacts' && filteredCalls.length === 0)) && (
-                <div className="empty">Nothing matches.</div>
+                <div className="empty">
+                  {query
+                    ? 'Nothing matches that search.'
+                    : composingNew
+                      ? 'Fill in the form on the right.'
+                      : 'No people here. Tap New contact, or switch to All.'}
+                </div>
               )}
             </div>
           </section>
@@ -1981,7 +2135,15 @@ export default function App({
             <>
               <div className="main-head">
                 <div>
-                  <h1>{nav === 'dialer' ? 'Dialer' : 'Recents'}</h1>
+                  <h1>
+                    {nav === 'dialer'
+                      ? 'Dialer'
+                      : nav === 'contacts'
+                        ? composingNew
+                          ? 'New contact'
+                          : 'Contacts'
+                        : 'Recents'}
+                  </h1>
                 </div>
                 <div className="pill">
                   <Shield size={14} />
@@ -1990,6 +2152,20 @@ export default function App({
               </div>
 
               <div className="main-scroll">
+                {nav === 'contacts' && composingNew ? (
+                  <NewContactForm
+                    defaultBrand={contactsBrand}
+                    defaultTags={defaultTagsForNewContact()}
+                    saving={savingContact}
+                    onSave={handleCreateContact}
+                    onCancel={() => setComposingNew(false)}
+                  />
+                ) : null}
+                <div
+                  style={
+                    nav === 'contacts' && composingNew ? { display: 'none' } : undefined
+                  }
+                >
                 {currentAgent.role === 'admin' && liveAgent?.onCallWith && (
                   <div className="card admin-bar">
                     <div className="admin-live">
@@ -2296,10 +2472,97 @@ export default function App({
 
                   <div className="card">
                     <h3>About them</h3>
+                    <p className="muted" style={{ marginTop: 0 }}>
+                      Click a box and type. It saves when you leave the box.
+                    </p>
                     <dl className="meta-grid">
+                      <div className="span-2">
+                        <dt>Name</dt>
+                        <dd>
+                          <input
+                            key={`${contact.id}-name`}
+                            className="followup-date"
+                            defaultValue={contact.name}
+                            onBlur={(e) => {
+                              const value = e.target.value.trim()
+                              if (!value || value === contact.name) return
+                              saveContactField(contact, { name: value })
+                            }}
+                          />
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Company</dt>
+                        <dd>
+                          <input
+                            key={`${contact.id}-company`}
+                            className="followup-date"
+                            defaultValue={contact.company}
+                            onBlur={(e) => {
+                              const value = e.target.value.trim()
+                              if (value === contact.company) return
+                              saveContactField(contact, { company: value })
+                            }}
+                          />
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Phone</dt>
+                        <dd>
+                          <input
+                            key={`${contact.id}-phone`}
+                            className="followup-date"
+                            defaultValue={contact.phone}
+                            onBlur={(e) => {
+                              const value = e.target.value.trim()
+                              if (value === contact.phone) return
+                              saveContactField(contact, { phone: value })
+                              showToast('Phone saved. Not screened yet — don’t call until TPS is clear.')
+                            }}
+                          />
+                        </dd>
+                      </div>
                       <div>
                         <dt>Email</dt>
-                        <dd>{contact.email}</dd>
+                        <dd>
+                          <input
+                            key={`${contact.id}-email`}
+                            className="followup-date"
+                            defaultValue={contact.email}
+                            onBlur={(e) => {
+                              const value = e.target.value.trim()
+                              if (value === contact.email) return
+                              saveContactField(contact, { email: value })
+                            }}
+                          />
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>LinkedIn</dt>
+                        <dd>
+                          <input
+                            key={`${contact.id}-linkedin`}
+                            className="followup-date"
+                            defaultValue={contact.linkedinUrl}
+                            placeholder="https://linkedin.com/in/…"
+                            onBlur={(e) => {
+                              const value = e.target.value.trim()
+                              if (value === contact.linkedinUrl) return
+                              saveContactLinkedin(contact, value)
+                            }}
+                          />
+                          {contact.linkedinUrl ? (
+                            <a
+                              className="link-btn"
+                              href={contact.linkedinUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ display: 'inline-flex', marginTop: 6, gap: 4 }}
+                            >
+                              <ExternalLink size={12} /> Open
+                            </a>
+                          ) : null}
+                        </dd>
                       </div>
                       <div>
                         <dt>Timezone</dt>
@@ -2309,9 +2572,32 @@ export default function App({
                         <dt>Owner</dt>
                         <dd>{contact.owner}</dd>
                       </div>
-                      <div>
-                        <dt>Tags</dt>
-                        <dd>{contact.tags.join(', ') || '—'}</dd>
+                      <div className="span-2">
+                        <dt>Lists</dt>
+                        <dd>
+                          <div className="list-picks">
+                            {(contact.brandId === 'clocal'
+                              ? [
+                                  ['waitlist', 'Waitlist'],
+                                  ['newsletter', 'Newsletter'],
+                                  ['cold-outreach', 'Cold outreach'],
+                                ]
+                              : [
+                                  ['replied', 'Replied'],
+                                  ['warmed', 'Warmed'],
+                                ]
+                            ).map(([id, label]) => (
+                              <button
+                                key={id}
+                                type="button"
+                                className={`outcome-btn ${contact.tags.includes(id) ? 'active' : ''}`}
+                                onClick={() => toggleContactListTag(contact, id)}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </dd>
                       </div>
                       <div>
                         <dt>TPS/CTPS</dt>
@@ -2465,7 +2751,9 @@ export default function App({
                       onChange={(e) => setNotes(e.target.value)}
                       onBlur={() => {
                         if (!contact.id) return
-                        saveContactNotes(contact.id, notes)
+                        const text = upsertLinkedinInNotes(notes, contact.linkedinUrl)
+                        setNotes(text)
+                        saveContactNotes(contact.id, text)
                           .then(() => showToast('Notes saved.'))
                           .catch((err) => {
                             console.error('Failed to save notes', err)
@@ -2988,6 +3276,7 @@ export default function App({
                             : 'Send Stripe pay link'}
                     </button>
                   </div>
+                </div>
                 </div>
               </div>
             </>

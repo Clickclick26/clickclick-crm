@@ -338,12 +338,20 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .panel-head h2 {
   margin: 0;
   font-size: 0.9rem;
   font-weight: 600;
+}
+
+.panel-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
 }
 
 .csv-upload-btn {
@@ -738,6 +746,39 @@ button {
 .meta-grid dd {
   margin: 0;
   font-weight: 500;
+}
+
+.meta-grid .span-2 {
+  grid-column: 1 / -1;
+}
+
+.new-contact-card {
+  max-width: 560px;
+}
+
+.new-contact-field {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--light);
+}
+
+.new-contact-field .followup-date,
+.new-contact-field .notes-box {
+  margin-top: 4px;
+}
+
+.new-contact-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.list-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .tps-badge {

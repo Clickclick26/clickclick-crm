@@ -2,6 +2,7 @@ import { supabase } from './client'
 import type { CsvContactRow } from '../csv'
 import type { Database } from './types'
 import type { Agent, BrandId, Contact, IndustryCategory, PipelineStage, TpsStatus } from '../../data/mock'
+import { parseLinkedinUrl, upsertLinkedinInNotes } from '../linkedin'
 
 type ContactUpdate = Database['public']['Tables']['contacts']['Update']
 type ContactInsert = Database['public']['Tables']['contacts']['Insert']
@@ -56,6 +57,7 @@ function toContact(row: ContactRow, agentsById: Map<string, Agent>): Contact {
     locality: row.locality,
     tpsStatus: row.tps_status,
     tpsScreenedAt: row.tps_screened_at ?? undefined,
+    linkedinUrl: parseLinkedinUrl(row.notes),
   }
 }
 
@@ -114,6 +116,109 @@ export async function updateContactFollowUp(id: string, nextCallback: string | n
     .from('contacts')
     .update({ next_callback: nextCallback, updated_at: new Date().toISOString() })
     .eq('id', id)
+  if (error) throw error
+}
+
+export type CreateContactInput = {
+  name: string
+  company: string
+  email: string
+  phone: string
+  notes: string
+  tags: string[]
+  brandId: BrandId
+  ownerId: string
+  linkedinUrl?: string
+}
+
+export type CreateContactResult =
+  | { ok: true; contact: Contact }
+  | { ok: false; duplicateId: string }
+
+/**
+ * Add one person by hand. Email match is per-brand (same as CSV). Phone
+ * numbers always start unscreened — never look "clear to call" just because
+ * you typed them in.
+ */
+export async function createContact(
+  input: CreateContactInput,
+  agents: Agent[],
+): Promise<CreateContactResult> {
+  const name = input.name.trim()
+  if (!name) throw new Error('Name is required.')
+
+  const email = input.email.trim().toLowerCase()
+  const phone = input.phone.trim()
+  const linkedinUrl = input.linkedinUrl?.trim() ?? ''
+  const notes = upsertLinkedinInNotes(input.notes, linkedinUrl)
+
+  if (email) {
+    const { data: existing, error: lookupError } = await supabase
+      .from('contacts')
+      .select('id')
+      .eq('brand_id', input.brandId)
+      .ilike('email', email)
+      .limit(1)
+    if (lookupError) throw lookupError
+    if (existing && existing.length > 0) {
+      return { ok: false, duplicateId: (existing[0] as { id: string }).id }
+    }
+  }
+
+  const row: ContactInsert = {
+    name,
+    email,
+    company: input.company.trim(),
+    phone,
+    owner_id: input.ownerId,
+    stage: 'new',
+    source: linkedinUrl ? 'linkedin' : 'manual',
+    timezone: 'Europe/London',
+    quiet_hours: '',
+    do_not_call: false,
+    notes,
+    tags: input.tags,
+    region: 'other',
+    brand_id: input.brandId,
+    tps_status: 'unscreened',
+  }
+
+  const { data, error } = await supabase.from('contacts').insert(row).select(CONTACT_COLUMNS).single()
+  if (error) throw error
+  const agentsById = new Map(agents.map((a) => [a.id, a]))
+  return { ok: true, contact: toContact(data as ContactRow, agentsById) }
+}
+
+export async function updateContactDetails(
+  id: string,
+  patch: {
+    name?: string
+    company?: string
+    phone?: string
+    email?: string
+    tags?: string[]
+    notes?: string
+    linkedinUrl?: string
+    currentNotes?: string
+  },
+) {
+  const db: ContactUpdate = { updated_at: new Date().toISOString() }
+  if (patch.name !== undefined) db.name = patch.name.trim()
+  if (patch.company !== undefined) db.company = patch.company.trim()
+  if (patch.email !== undefined) db.email = patch.email.trim().toLowerCase()
+  if (patch.tags !== undefined) db.tags = patch.tags
+  if (patch.phone !== undefined) {
+    db.phone = patch.phone.trim()
+    // New/changed number is not the old screening result.
+    db.tps_status = 'unscreened'
+    db.tps_screened_at = null
+  }
+  if (patch.linkedinUrl !== undefined) {
+    db.notes = upsertLinkedinInNotes(patch.currentNotes ?? '', patch.linkedinUrl)
+  } else if (patch.notes !== undefined) {
+    db.notes = patch.notes
+  }
+  const { error } = await supabase.from('contacts').update(db).eq('id', id)
   if (error) throw error
 }
 

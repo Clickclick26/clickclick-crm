@@ -35,6 +35,8 @@ export type Contact = {
   /** PECR TPS/CTPS screening result — 'unscreened' is the safe default and blocks calling. */
   tpsStatus: TpsStatus
   tpsScreenedAt?: string
+  /** LinkedIn profile URL — stored in notes until a real column exists. */
+  linkedinUrl: string
 }
 
 // Deliberately the exact same list as CLocal/constants/categories.ts's
@@ -81,6 +83,7 @@ export const EMPTY_CONTACT: Contact = {
   industry: null,
   locality: '',
   tpsStatus: 'unscreened',
+  linkedinUrl: '',
 }
 
 export type PhoneRegion = 'belfast' | 'london' | 'scotland' | 'wales' | 'other'
