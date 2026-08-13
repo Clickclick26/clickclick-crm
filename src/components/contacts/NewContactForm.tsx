@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { BRANDS, type BrandId } from '../../data/mock'
+import { listsForBrand, type CustomList } from '../../lib/contactLists'
 
 export type NewContactDraft = {
   name: string
@@ -12,35 +13,22 @@ export type NewContactDraft = {
   notes: string
 }
 
-const CLICKCLICK_LISTS = [
-  { id: 'replied', label: 'Replied' },
-  { id: 'warmed', label: 'Warmed' },
-] as const
-
-const CLOCAL_LISTS = [
-  { id: 'waitlist', label: 'Waitlist' },
-  { id: 'newsletter', label: 'Newsletter' },
-  { id: 'cold-outreach', label: 'Cold outreach' },
-] as const
-
-function listsForBrand(brandId: BrandId) {
-  return brandId === 'clocal' ? CLOCAL_LISTS : CLICKCLICK_LISTS
-}
-
 export function NewContactForm({
   defaultBrand,
   defaultTags,
+  customLists,
   saving,
   onSave,
   onCancel,
 }: {
   defaultBrand: BrandId
   defaultTags: string[]
+  customLists: CustomList[]
   saving: boolean
   onSave: (draft: NewContactDraft, addAnother: boolean) => Promise<void>
   onCancel: () => void
 }) {
-  const allowed = new Set<string>(listsForBrand(defaultBrand).map((l) => l.id))
+  const allowed = new Set(listsForBrand(defaultBrand, customLists).map((l) => l.id))
   const [name, setName] = useState('')
   const [company, setCompany] = useState('')
   const [email, setEmail] = useState('')
@@ -50,7 +38,7 @@ export function NewContactForm({
   const [tags, setTags] = useState<string[]>(defaultTags.filter((t) => allowed.has(t)))
   const [notes, setNotes] = useState('')
 
-  const lists = listsForBrand(brandId)
+  const lists = listsForBrand(brandId, customLists)
 
   function resetFields() {
     setName('')
@@ -153,7 +141,7 @@ export function NewContactForm({
               className={`tab ${brandId === b.id ? 'active' : ''}`}
               onClick={() => {
                 setBrandId(b.id)
-                const keep = new Set<string>(listsForBrand(b.id).map((l) => l.id))
+                const keep = new Set(listsForBrand(b.id, customLists).map((l) => l.id))
                 setTags((prev) => prev.filter((t) => keep.has(t)))
               }}
             >

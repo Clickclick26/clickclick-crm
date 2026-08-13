@@ -5,6 +5,7 @@ import { ListsScreen } from './components/screens/ListsScreen'
 import { ReportsScreen } from './components/screens/ReportsScreen'
 import { PipelineScreen } from './components/screens/PipelineScreen'
 import { NewContactForm, type NewContactDraft } from './components/contacts/NewContactForm'
+import { ContactViews } from './components/contacts/ContactViews'
 
 // Vite ESM interop: default export is often `{ default: Component }`.
 const Lottie =
@@ -97,6 +98,12 @@ import {
   updateContactStage,
 } from './lib/supabase/contacts'
 import { upsertLinkedinInNotes } from './lib/linkedin'
+import {
+  addCustomList,
+  listsForBrand,
+  loadCustomLists,
+  type CustomList,
+} from './lib/contactLists'
 import {
   dueFollowUpCount,
   ensureNotifyPermission,
@@ -242,9 +249,7 @@ export default function App({
   // ClickClick tabs are cold-call statuses; CLocal tabs are list membership
   // (a contact can be on more than one CLocal list at once — e.g. waitlist
   // AND newsletter — so these are non-exclusive tag filters, not stages).
-  const [contactFilter, setContactFilter] = useState<
-    'all' | 'replied' | 'warmed' | 'due' | 'waitlist' | 'newsletter' | 'cold-outreach'
-  >('all')
+  const [contactFilter, setContactFilter] = useState('all')
   // Industry filter — CLocal only, independent of contactFilter above (a
   // contact's list membership and its business category are unrelated axes).
   const [categoryFilter, setCategoryFilter] = useState<'all' | IndustryCategory>('all')
@@ -257,6 +262,7 @@ export default function App({
   const [screeningAll, setScreeningAll] = useState(false)
   const [composingNew, setComposingNew] = useState(false)
   const [savingContact, setSavingContact] = useState(false)
+  const [customLists, setCustomLists] = useState<CustomList[]>(() => loadCustomLists())
   const csvInputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
   const [selectedCallId, setSelectedCallId] = useState(CALLS[0].id)
@@ -371,11 +377,6 @@ export default function App({
     // Re-fetch once the real team list lands so contact.owner names resolve correctly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents.length])
-
-  const dueCount = useMemo(
-    () => dueFollowUpCount(contacts, isFollowUpDue),
-    [contacts],
-  )
 
   useEffect(() => {
     fetchReferrals()
@@ -710,14 +711,11 @@ export default function App({
     const q = query.toLowerCase()
     return contacts.filter((c) => {
       if (c.brandId !== contactsBrand) return false
-      if (contactFilter === 'replied' && !c.tags.includes('replied')) return false
-      if (contactFilter === 'warmed' && !c.tags.includes('warmed')) return false
-      if (contactFilter === 'due' && !isFollowUpDue(c.nextCallback)) return false
-      // CLocal list membership — tag-based, not mutually exclusive. A contact
-      // can be on the waitlist AND newsletter-opted-in at the same time.
-      if (contactFilter === 'waitlist' && !c.tags.includes('waitlist')) return false
-      if (contactFilter === 'newsletter' && !c.tags.includes('newsletter')) return false
-      if (contactFilter === 'cold-outreach' && !c.tags.includes('cold-outreach')) return false
+      if (contactFilter === 'due') {
+        if (!isFollowUpDue(c.nextCallback)) return false
+      } else if (contactFilter !== 'all' && !c.tags.includes(contactFilter)) {
+        return false
+      }
       if (contactsBrand === 'clocal' && categoryFilter !== 'all' && c.industry !== categoryFilter)
         return false
       if (!q) return true
@@ -807,17 +805,49 @@ export default function App({
   }
 
   function defaultTagsForNewContact(): string[] {
-    if (
-      contactFilter === 'waitlist' ||
-      contactFilter === 'newsletter' ||
-      contactFilter === 'cold-outreach' ||
-      contactFilter === 'replied' ||
-      contactFilter === 'warmed'
-    ) {
-      return [contactFilter]
-    }
+    if (contactFilter !== 'all' && contactFilter !== 'due') return [contactFilter]
     return []
   }
+
+  function selectContactView(brand: BrandId, filter: string) {
+    if (brand !== contactsBrand) setCategoryFilter('all')
+    setContactsBrand(brand)
+    setContactFilter(filter)
+    if (filter === 'due' && !hasAskedNotifyPermission()) {
+      markAskedNotifyPermission()
+      void ensureNotifyPermission().then((p) => {
+        if (p === 'granted') showToast('Browser reminders on.')
+        else if (p === 'denied') showToast('Browser reminders blocked — use Due.')
+      })
+    }
+  }
+
+  function handleAddList(brand: BrandId, label: string) {
+    const result = addCustomList(customLists, brand, label)
+    if (result.error === 'That list already exists.' && result.id) {
+      selectContactView(brand, result.id)
+      showToast('Opened the existing list.')
+      return
+    }
+    if (result.error) {
+      showToast(result.error)
+      return
+    }
+    setCustomLists(result.lists)
+    selectContactView(brand, result.id)
+    showToast(`List ready: ${label.trim()}`)
+  }
+
+  const dueByBrand = useMemo(
+    () => ({
+      clickclick: contacts.filter(
+        (c) => c.brandId === 'clickclick' && isFollowUpDue(c.nextCallback),
+      ).length,
+      clocal: contacts.filter((c) => c.brandId === 'clocal' && isFollowUpDue(c.nextCallback))
+        .length,
+    }),
+    [contacts],
+  )
 
   async function handleCreateContact(draft: NewContactDraft, addAnother: boolean) {
     if (!draft.name) {
@@ -1504,49 +1534,17 @@ export default function App({
               {nav === 'contacts' ? (
                 <>
                   <h2>Contacts</h2>
-                  <div className="panel-head-actions">
-                    <button
-                      type="button"
-                      className="btn ghost csv-upload-btn"
-                      onClick={() => {
-                        setComposingNew(true)
-                        setNav('contacts')
-                      }}
-                    >
-                      <UserPlus size={14} />
-                      New contact
-                    </button>
-                    <button
-                      type="button"
-                      className="btn ghost csv-upload-btn"
-                      disabled={csvImporting}
-                      onClick={() => csvInputRef.current?.click()}
-                      title={`Imports into the ${BRANDS.find((b) => b.id === contactsBrand)?.label ?? contactsBrand} list — switch the tab above to change that first`}
-                    >
-                      {csvImporting
-                        ? 'Uploading…'
-                        : `Upload CSV to ${BRANDS.find((b) => b.id === contactsBrand)?.label ?? contactsBrand}`}
-                    </button>
-                    <input
-                      ref={csvInputRef}
-                      type="file"
-                      accept=".csv,text/csv"
-                      hidden
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (file) void handleCsvFile(file)
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="btn ghost csv-upload-btn"
-                      disabled={screeningAll}
-                      onClick={() => void handleScreenAll()}
-                      title="Re-check every contact on this tab against TPS/CTPS"
-                    >
-                      {screeningAll ? 'Screening…' : 'Screen all for TPS/CTPS'}
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    className="btn ghost csv-upload-btn"
+                    onClick={() => {
+                      setComposingNew(true)
+                      setNav('contacts')
+                    }}
+                  >
+                    <UserPlus size={14} />
+                    New
+                  </button>
                 </>
               ) : (
                 <div className="tabs">
@@ -1566,93 +1564,16 @@ export default function App({
               )}
             </div>
             {nav === 'contacts' && (
-              <div className="tabs contact-filter-tabs" title="Sales leads vs CLocal contacts — kept apart on purpose">
-                {BRANDS.map((b) => (
-                  <button
-                    key={b.id}
-                    type="button"
-                    className={`tab ${contactsBrand === b.id ? 'active' : ''}`}
-                    onClick={() => {
-                      setContactsBrand(b.id)
-                      // Last brand's filter tab (e.g. "Warmed") isn't valid on
-                      // the other brand's tab set — don't carry it over.
-                      setContactFilter('all')
-                      setCategoryFilter('all')
-                    }}
-                  >
-                    {b.label}
-                  </button>
-                ))}
-              </div>
-            )}
-            {nav === 'contacts' && (
-              <div className="tabs contact-filter-tabs">
-                {(
-                  contactsBrand === 'clocal'
-                    ? ([
-                        ['all', 'All'],
-                        ['waitlist', 'Waitlist'],
-                        ['newsletter', 'Newsletter'],
-                        ['cold-outreach', 'Cold outreach'],
-                      ] as const)
-                    : ([
-                        ['all', 'All'],
-                        ['replied', 'Replied'],
-                        ['warmed', 'Warmed'],
-                        ['due', dueCount > 0 ? `Due (${dueCount})` : 'Due'],
-                      ] as const)
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={`tab ${contactFilter === id ? 'active' : ''} ${id === 'due' && dueCount > 0 ? 'tab-due' : ''}`}
-                    onClick={() => setContactFilter(id)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
-            {nav === 'contacts' && contactsBrand === 'clocal' && (
-              <div className="tabs contact-filter-tabs" title="Filter by business category">
-                <button
-                  type="button"
-                  className={`tab ${categoryFilter === 'all' ? 'active' : ''}`}
-                  onClick={() => setCategoryFilter('all')}
-                >
-                  All categories
-                </button>
-                {INDUSTRY_CATEGORIES.map((cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    className={`tab ${categoryFilter === cat ? 'active' : ''}`}
-                    onClick={() => setCategoryFilter(cat)}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
-            )}
-            {nav === 'contacts' && dueCount > 0 && (
-              <button
-                type="button"
-                className="followup-banner"
-                onClick={() => {
-                  setContactFilter('due')
-                  if (!hasAskedNotifyPermission()) {
-                    markAskedNotifyPermission()
-                    void ensureNotifyPermission().then((p) => {
-                      if (p === 'granted') showToast('Browser reminders on.')
-                      else if (p === 'denied') showToast('Browser reminders blocked — use the Due tab.')
-                    })
-                  }
-                }}
-              >
-                {dueCount === 1
-                  ? '1 follow-up due — tap to view'
-                  : `${dueCount} follow-ups due — tap to view`}
-              </button>
+              <ContactViews
+                contactsBrand={contactsBrand}
+                contactFilter={contactFilter}
+                customLists={customLists}
+                dueByBrand={dueByBrand}
+                categoryFilter={categoryFilter}
+                onSelectView={selectContactView}
+                onAddList={handleAddList}
+                onCategoryChange={setCategoryFilter}
+              />
             )}
             <div className="search-wrap">
               <Search size={14} />
@@ -1713,10 +1634,42 @@ export default function App({
                     ? 'Nothing matches that search.'
                     : composingNew
                       ? 'Fill in the form on the right.'
-                      : 'No people here. Tap New contact, or switch to All.'}
+                      : 'No people in this list. Tap New, or pick All.'}
                 </div>
               )}
             </div>
+            {nav === 'contacts' && (
+              <div className="panel-foot">
+                <button
+                  type="button"
+                  className="link-btn"
+                  disabled={csvImporting}
+                  onClick={() => csvInputRef.current?.click()}
+                >
+                  {csvImporting
+                    ? 'Uploading…'
+                    : `Upload CSV to ${BRANDS.find((b) => b.id === contactsBrand)?.label ?? contactsBrand}`}
+                </button>
+                <input
+                  ref={csvInputRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  hidden
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) void handleCsvFile(file)
+                  }}
+                />
+                <button
+                  type="button"
+                  className="link-btn"
+                  disabled={screeningAll}
+                  onClick={() => void handleScreenAll()}
+                >
+                  {screeningAll ? 'Screening…' : 'Screen TPS/CTPS'}
+                </button>
+              </div>
+            )}
           </section>
         )}
 
@@ -2156,6 +2109,7 @@ export default function App({
                   <NewContactForm
                     defaultBrand={contactsBrand}
                     defaultTags={defaultTagsForNewContact()}
+                    customLists={customLists}
                     saving={savingContact}
                     onSave={handleCreateContact}
                     onCancel={() => setComposingNew(false)}
@@ -2576,24 +2530,14 @@ export default function App({
                         <dt>Lists</dt>
                         <dd>
                           <div className="list-picks">
-                            {(contact.brandId === 'clocal'
-                              ? [
-                                  ['waitlist', 'Waitlist'],
-                                  ['newsletter', 'Newsletter'],
-                                  ['cold-outreach', 'Cold outreach'],
-                                ]
-                              : [
-                                  ['replied', 'Replied'],
-                                  ['warmed', 'Warmed'],
-                                ]
-                            ).map(([id, label]) => (
+                            {listsForBrand(contact.brandId, customLists).map((list) => (
                               <button
-                                key={id}
+                                key={list.id}
                                 type="button"
-                                className={`outcome-btn ${contact.tags.includes(id) ? 'active' : ''}`}
-                                onClick={() => toggleContactListTag(contact, id)}
+                                className={`outcome-btn ${contact.tags.includes(list.id) ? 'active' : ''}`}
+                                onClick={() => toggleContactListTag(contact, list.id)}
                               >
-                                {label}
+                                {list.label}
                               </button>
                             ))}
                           </div>
