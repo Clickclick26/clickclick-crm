@@ -1,4 +1,5 @@
 import { supabase } from './client'
+import { ensureFreshSession } from './session'
 import type { CsvContactRow } from '../csv'
 import type { Database } from './types'
 import type { Agent, BrandId, Contact, IndustryCategory, PipelineStage, TpsStatus } from '../../data/mock'
@@ -106,6 +107,8 @@ export async function screenContactsForTps(
 }
 
 export async function updateContactNotes(id: string, notes: string) {
+  if (!id) return
+  await ensureFreshSession()
   const { error } = await supabase.from('contacts').update({ notes }).eq('id', id)
   if (error) throw error
 }
@@ -142,6 +145,13 @@ export type CreateContactResult =
   | { ok: true; contact: Contact }
   | { ok: false; duplicateId: string }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function escapeIlike(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
+}
+
 /**
  * Add one person by hand. Email match is per-brand (same as CSV). Phone
  * numbers always start unscreened — never look "clear to call" just because
@@ -151,6 +161,8 @@ export async function createContact(
   input: CreateContactInput,
   agents: Agent[],
 ): Promise<CreateContactResult> {
+  await ensureFreshSession()
+
   const name = input.name.trim()
   if (!name) throw new Error('Name is required.')
 
@@ -167,7 +179,7 @@ export async function createContact(
       .from('contacts')
       .select('id')
       .eq('brand_id', input.brandId)
-      .ilike('email', email)
+      .ilike('email', escapeIlike(email))
       .limit(1)
     if (lookupError) throw lookupError
     if (existing && existing.length > 0) {
@@ -179,8 +191,8 @@ export async function createContact(
     name,
     email,
     company: input.company.trim(),
-    phone,
-    owner_id: input.ownerId,
+    phone: phone || '',
+    owner_id: UUID_RE.test(input.ownerId) ? input.ownerId : null,
     stage: 'new',
     source: linkedinUrl ? 'linkedin' : 'manual',
     timezone: 'Europe/London',
@@ -194,10 +206,32 @@ export async function createContact(
     tps_status: 'unscreened',
   }
 
-  const { data, error } = await supabase.from('contacts').insert(row).select(CONTACT_COLUMNS).single()
+  let { data, error } = await supabase.from('contacts').insert(row).select(CONTACT_COLUMNS)
+  if (error && error.code === '23503' && /owner_id/.test(error.message)) {
+    const retry = { ...row, owner_id: null }
+    ;({ data, error } = await supabase.from('contacts').insert(retry).select(CONTACT_COLUMNS))
+  }
   if (error) throw error
+
+  let created = (data?.[0] ?? null) as ContactRow | null
+  if (!created) {
+    const foundQuery = supabase
+      .from('contacts')
+      .select(CONTACT_COLUMNS)
+      .eq('brand_id', input.brandId)
+      .eq('name', name)
+      .limit(1)
+    const { data: found } = email
+      ? await foundQuery.eq('email', email)
+      : await foundQuery
+    created = (found?.[0] ?? null) as ContactRow | null
+  }
+  if (!created) {
+    throw new Error('Saved, but I could not load them. Refresh the page.')
+  }
+
   const agentsById = new Map(agents.map((a) => [a.id, a]))
-  return { ok: true, contact: toContact(data as ContactRow, agentsById) }
+  return { ok: true, contact: toContact(created, agentsById) }
 }
 
 export async function updateContactDetails(
@@ -215,6 +249,8 @@ export async function updateContactDetails(
     extraPeople?: ExtraPerson[]
   },
 ) {
+  if (!id) return
+  await ensureFreshSession()
   const db: ContactUpdate = { updated_at: new Date().toISOString() }
   if (patch.name !== undefined) db.name = patch.name.trim()
   if (patch.company !== undefined) db.company = patch.company.trim()

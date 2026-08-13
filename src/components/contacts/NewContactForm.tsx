@@ -35,7 +35,7 @@ export function NewContactForm({
   defaultTags: string[]
   customLists: CustomList[]
   saving: boolean
-  onSave: (draft: NewContactDraft, addAnother: boolean) => Promise<void>
+  onSave: (draft: NewContactDraft, addAnother: boolean) => Promise<boolean>
   onCancel: () => void
 }) {
   const saved = loadNewContactDraft<NewContactDraft>()
@@ -110,7 +110,8 @@ export function NewContactForm({
       tags,
       notes: notes.trim(),
     }
-    await onSave(draft, addAnother)
+    const ok = await onSave(draft, addAnother)
+    if (!ok) return
     if (addAnother) resetFields()
     else clearNewContactDraft()
   }

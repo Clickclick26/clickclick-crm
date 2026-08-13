@@ -98,6 +98,7 @@ import {
   updateContactStage,
 } from './lib/supabase/contacts'
 import { loadPlace, savePlace } from './lib/sessionPlace'
+import { saveFailMessage } from './lib/supabase/session'
 import { upsertLinkedinInNotes } from './lib/linkedin'
 import { PERSON_ROLES, upsertPeopleInNotes, type ExtraPerson, type PersonRole } from './lib/people'
 import { ExtraPeopleFields } from './components/contacts/ExtraPeopleFields'
@@ -888,10 +889,10 @@ export default function App({
     [contacts],
   )
 
-  async function handleCreateContact(draft: NewContactDraft, addAnother: boolean) {
+  async function handleCreateContact(draft: NewContactDraft, addAnother: boolean): Promise<boolean> {
     if (!draft.name) {
       showToast('Name is required.')
-      return
+      return false
     }
     setSavingContact(true)
     try {
@@ -925,7 +926,7 @@ export default function App({
         if (!existing) setContacts(fresh)
         const person = (existing ? [existing] : fresh).find((c) => c.id === result.duplicateId)
         if (person) selectContact(person)
-        return
+        return true
       }
 
       setContacts((prev) => [result.contact, ...prev.filter((c) => c.id !== result.contact.id)])
@@ -952,13 +953,15 @@ export default function App({
 
       if (addAnother) {
         showToast(`Saved ${result.contact.name}. Add the next one.`)
-        return
+        return true
       }
       selectContact(result.contact)
       showToast(`Saved ${result.contact.name}.`)
+      return true
     } catch (err) {
       console.error(err)
-      showToast('Could not save that person. Try again.')
+      showToast(saveFailMessage(err))
+      return false
     } finally {
       setSavingContact(false)
     }
@@ -968,6 +971,7 @@ export default function App({
     person: Contact,
     patch: { name?: string; company?: string; phone?: string; email?: string; tags?: string[] },
   ) {
+    if (!person.id) return
     const next = { ...person, ...patch }
     if (patch.phone !== undefined && patch.phone !== person.phone) {
       next.tpsStatus = 'unscreened'
@@ -976,11 +980,12 @@ export default function App({
     setContacts((prev) => prev.map((c) => (c.id === person.id ? next : c)))
     updateContactDetails(person.id, patch).catch((err) => {
       console.error('Failed to save contact', err)
-      showToast('Could not save — try again.')
+      showToast(saveFailMessage(err))
     })
   }
 
   function saveContactLinkedin(person: Contact, url: string) {
+    if (!person.id) return
     const notesWithUrl = upsertLinkedinInNotes(person.notes, url)
     setNotes(notesWithUrl)
     setContacts((prev) =>
@@ -991,12 +996,13 @@ export default function App({
     updateContactDetails(person.id, { linkedinUrl: url, currentNotes: person.notes }).catch(
       (err) => {
         console.error('Failed to save LinkedIn', err)
-        showToast('Could not save LinkedIn — try again.')
+        showToast(saveFailMessage(err))
       },
     )
   }
 
   function saveContactPeople(person: Contact, role: PersonRole, extra: ExtraPerson[]) {
+    if (!person.id) return
     const clean = extra.filter((p) => p.name.trim())
     const notesWith = upsertLinkedinInNotes(
       upsertPeopleInNotes(person.notes, role, extra),
@@ -1016,7 +1022,7 @@ export default function App({
       currentNotes: person.notes,
     }).catch((err) => {
       console.error('Failed to save people', err)
-      showToast('Could not save people — try again.')
+      showToast(saveFailMessage(err))
     })
   }
 
@@ -2182,6 +2188,7 @@ export default function App({
                   />
                 ) : null}
                 <div
+                  inert={nav === 'contacts' && composingNew}
                   style={
                     nav === 'contacts' && composingNew ? { display: 'none' } : undefined
                   }

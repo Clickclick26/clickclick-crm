@@ -25,6 +25,11 @@ export function ExtraPeopleFields({
     onCommit?.(next)
   }
 
+  function add(role: PersonRole) {
+    // Don't save a blank row — wait until they type a name.
+    onChange([...people, { name: '', role }])
+  }
+
   return (
     <div className="new-contact-field">
       <span>Other people</span>
@@ -72,21 +77,21 @@ export function ExtraPeopleFields({
         <button
           type="button"
           className="outcome-btn"
-          onClick={() => setAll([...people, { name: '', role: 'co-founder' }])}
+          onClick={() => add('co-founder')}
         >
           <Plus size={12} /> Co-founder
         </button>
         <button
           type="button"
           className="outcome-btn"
-          onClick={() => setAll([...people, { name: '', role: 'decision-maker' }])}
+          onClick={() => add('decision-maker')}
         >
           <Plus size={12} /> Decision maker
         </button>
         <button
           type="button"
           className="outcome-btn"
-          onClick={() => setAll([...people, { name: '', role: 'other' }])}
+          onClick={() => add('other')}
         >
           <Plus size={12} /> Other
         </button>

@@ -90,9 +90,27 @@ export function useCurrentAgent() {
       void loadFromSession(session?.user.id)
     })
 
+    function onVisible() {
+      if (document.visibilityState !== 'visible') return
+      void supabase.auth.getSession().then(async ({ data }) => {
+        if (data.session) {
+          const exp = data.session.expires_at
+          if (exp && exp * 1000 > Date.now() + 60_000) return
+        }
+        const { data: refreshed } = await supabase.auth.refreshSession()
+        if (!cancelled && !refreshed.session) {
+          setAgent(null)
+          setError(null)
+          setLoading(false)
+        }
+      })
+    }
+    document.addEventListener('visibilitychange', onVisible)
+
     return () => {
       cancelled = true
       sub.subscription.unsubscribe()
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [])
 
