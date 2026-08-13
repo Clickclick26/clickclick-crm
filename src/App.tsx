@@ -867,6 +867,7 @@ export default function App({
           brandId: draft.brandId,
           ownerId: currentAgent.id,
           linkedinUrl: draft.linkedinUrl,
+          locality: draft.location,
         },
         agents,
       )
@@ -2588,32 +2589,30 @@ export default function App({
                           </dd>
                         </div>
                       )}
-                      {contact.brandId === 'clocal' && (
-                        <div>
-                          <dt>Area</dt>
-                          <dd>
-                            <input
-                              key={contact.id}
-                              type="text"
-                              className="followup-date"
-                              placeholder="e.g. Lisburn Road"
-                              defaultValue={contact.locality}
-                              onBlur={(e) => {
-                                const value = e.target.value.trim()
-                                if (value === contact.locality) return
-                                setContacts((prev) =>
-                                  prev.map((c) =>
-                                    c.id === contact.id ? { ...c, locality: value } : c,
-                                  ),
-                                )
-                                updateContactCategory(contact.id, { locality: value }).catch(
-                                  (err) => console.error('Failed to save area', err),
-                                )
-                              }}
-                            />
-                          </dd>
-                        </div>
-                      )}
+                      <div>
+                        <dt>Location</dt>
+                        <dd>
+                          <input
+                            key={`${contact.id}-locality`}
+                            type="text"
+                            className="followup-date"
+                            placeholder="e.g. Lisburn Road, Belfast"
+                            defaultValue={contact.locality}
+                            onBlur={(e) => {
+                              const value = e.target.value.trim()
+                              if (value === contact.locality) return
+                              setContacts((prev) =>
+                                prev.map((c) =>
+                                  c.id === contact.id ? { ...c, locality: value } : c,
+                                ),
+                              )
+                              updateContactCategory(contact.id, { locality: value }).catch(
+                                (err) => console.error('Failed to save location', err),
+                              )
+                            }}
+                          />
+                        </dd>
+                      </div>
                       <div>
                         <dt>Follow-up</dt>
                         <dd>

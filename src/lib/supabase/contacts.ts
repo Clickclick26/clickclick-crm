@@ -129,6 +129,7 @@ export type CreateContactInput = {
   brandId: BrandId
   ownerId: string
   linkedinUrl?: string
+  locality?: string
 }
 
 export type CreateContactResult =
@@ -180,6 +181,7 @@ export async function createContact(
     tags: input.tags,
     region: 'other',
     brand_id: input.brandId,
+    locality: input.locality?.trim() ?? '',
     tps_status: 'unscreened',
   }
 

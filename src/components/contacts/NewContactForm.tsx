@@ -8,6 +8,7 @@ export type NewContactDraft = {
   email: string
   phone: string
   linkedinUrl: string
+  location: string
   brandId: BrandId
   tags: string[]
   notes: string
@@ -34,6 +35,7 @@ export function NewContactForm({
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [linkedinUrl, setLinkedinUrl] = useState('')
+  const [location, setLocation] = useState('')
   const [brandId, setBrandId] = useState<BrandId>(defaultBrand)
   const [tags, setTags] = useState<string[]>(defaultTags.filter((t) => allowed.has(t)))
   const [notes, setNotes] = useState('')
@@ -46,6 +48,7 @@ export function NewContactForm({
     setEmail('')
     setPhone('')
     setLinkedinUrl('')
+    setLocation('')
     setNotes('')
   }
 
@@ -65,6 +68,7 @@ export function NewContactForm({
       email: email.trim(),
       phone: phone.trim(),
       linkedinUrl: linkedinUrl.trim(),
+      location: location.trim(),
       brandId,
       tags,
       notes: notes.trim(),
@@ -98,6 +102,15 @@ export function NewContactForm({
           value={company}
           onChange={(e) => setCompany(e.target.value)}
           placeholder="Optional"
+        />
+      </label>
+      <label className="new-contact-field">
+        Location
+        <input
+          className="followup-date"
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+          placeholder="e.g. Lisburn Road, Belfast"
         />
       </label>
       <div className="new-contact-row">
