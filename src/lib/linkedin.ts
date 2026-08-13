@@ -22,9 +22,15 @@ export function notesWithoutLinkedin(notes: string): string {
   return [before, after].filter(Boolean).join('\n\n')
 }
 
+export function firstHttpUrl(raw: string): string {
+  const match = raw.trim().match(/https?:\/\/[^\s]+/i)
+  if (!match) return raw.trim()
+  return match[0].replace(/[.,;]+$/g, '')
+}
+
 export function upsertLinkedinInNotes(notes: string, url: string): string {
   const base = notesWithoutLinkedin(notes).trim()
-  const trimmed = url.trim()
+  const trimmed = firstHttpUrl(url)
   if (!trimmed) return base
   const block = `${START}\n${trimmed}\n${END}`
   if (!base) return block

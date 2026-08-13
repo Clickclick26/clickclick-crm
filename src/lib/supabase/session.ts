@@ -10,6 +10,7 @@ export async function ensureFreshSession() {
 
   const { data: refreshed } = await supabase.auth.refreshSession()
   if (refreshed.session) return refreshed.session
+  if (data.session) return data.session
   throw new Error('SIGNED_OUT')
 }
 

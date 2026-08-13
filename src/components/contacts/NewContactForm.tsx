@@ -8,6 +8,7 @@ import {
 import { listsForBrand, type CustomList } from '../../lib/contactLists'
 import { PERSON_ROLES, type ExtraPerson, type PersonRole } from '../../lib/people'
 import { ExtraPeopleFields } from './ExtraPeopleFields'
+import { firstHttpUrl } from '../../lib/linkedin'
 
 export type NewContactDraft = {
   name: string
@@ -104,7 +105,7 @@ export function NewContactForm({
       company: company.trim(),
       email: email.trim(),
       phone: phone.trim(),
-      linkedinUrl: linkedinUrl.trim(),
+      linkedinUrl: firstHttpUrl(linkedinUrl),
       location: location.trim(),
       brandId,
       tags,
@@ -131,7 +132,7 @@ export function NewContactForm({
             className="followup-date"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Jane Smith"
+            placeholder="The person's name"
             autoFocus
           />
         </label>
@@ -250,16 +251,22 @@ export function NewContactForm({
         <button
           type="button"
           className="btn primary"
-          disabled={saving}
-          onClick={() => void submit(false)}
+          disabled={saving || !name.trim()}
+          onClick={() => {
+            if (!name.trim()) return
+            void submit(false)
+          }}
         >
           {saving ? 'Saving…' : 'Save'}
         </button>
         <button
           type="button"
           className="btn ghost"
-          disabled={saving}
-          onClick={() => void submit(true)}
+          disabled={saving || !name.trim()}
+          onClick={() => {
+            if (!name.trim()) return
+            void submit(true)
+          }}
         >
           Save & add another
         </button>

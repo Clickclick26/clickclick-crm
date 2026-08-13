@@ -3,7 +3,7 @@ import { ensureFreshSession } from './session'
 import type { CsvContactRow } from '../csv'
 import type { Database } from './types'
 import type { Agent, BrandId, Contact, IndustryCategory, PipelineStage, TpsStatus } from '../../data/mock'
-import { parseLinkedinUrl, upsertLinkedinInNotes } from '../linkedin'
+import { parseLinkedinUrl, upsertLinkedinInNotes, firstHttpUrl } from '../linkedin'
 import { parsePeople, upsertPeopleInNotes, type ExtraPerson, type PersonRole } from '../people'
 
 type ContactUpdate = Database['public']['Tables']['contacts']['Update']
@@ -168,7 +168,7 @@ export async function createContact(
 
   const email = input.email.trim().toLowerCase()
   const phone = input.phone.trim()
-  const linkedinUrl = input.linkedinUrl?.trim() ?? ''
+  const linkedinUrl = firstHttpUrl(input.linkedinUrl ?? '')
   const notes = upsertLinkedinInNotes(
     upsertPeopleInNotes(input.notes, input.personRole ?? 'main', input.extraPeople ?? []),
     linkedinUrl,
@@ -209,6 +209,10 @@ export async function createContact(
   let { data, error } = await supabase.from('contacts').insert(row).select(CONTACT_COLUMNS)
   if (error && error.code === '23503' && /owner_id/.test(error.message)) {
     const retry = { ...row, owner_id: null }
+    ;({ data, error } = await supabase.from('contacts').insert(retry).select(CONTACT_COLUMNS))
+  }
+  if (error && error.code === '23514') {
+    const retry = { ...row, source: '' }
     ;({ data, error } = await supabase.from('contacts').insert(retry).select(CONTACT_COLUMNS))
   }
   if (error) throw error
