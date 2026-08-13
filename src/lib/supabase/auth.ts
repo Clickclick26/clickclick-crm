@@ -74,9 +74,20 @@ export function useCurrentAgent() {
       loadFromSession(data.session?.user.id)
     })
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setLoading(true)
-      loadFromSession(session?.user.id)
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      // Tab-switch / token refresh used to set loading=true, which unmounted
+      // the whole CRM and dumped Kathryn back on Recents (the "homepage").
+      // Stay put unless they actually signed in or out.
+      if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        return
+      }
+      if (event === 'SIGNED_OUT') {
+        setAgent(null)
+        setError(null)
+        setLoading(false)
+        return
+      }
+      void loadFromSession(session?.user.id)
     })
 
     return () => {

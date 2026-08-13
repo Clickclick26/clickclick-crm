@@ -5,11 +5,11 @@ import App from '../App'
 export default function AuthGate() {
   const { agent, loading, error, setAgent } = useCurrentAgent()
 
-  if (loading) {
+  if (loading && !agent) {
     return <div className="auth-screen">Loading…</div>
   }
 
-  if (error) {
+  if (error && !agent) {
     return (
       <div className="auth-screen">
         <div className="card auth-card">

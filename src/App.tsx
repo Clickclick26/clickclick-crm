@@ -97,6 +97,7 @@ import {
   updateContactNotes,
   updateContactStage,
 } from './lib/supabase/contacts'
+import { loadPlace, savePlace } from './lib/sessionPlace'
 import { upsertLinkedinInNotes } from './lib/linkedin'
 import { PERSON_ROLES, upsertPeopleInNotes, type ExtraPerson, type PersonRole } from './lib/people'
 import { ExtraPeopleFields } from './components/contacts/ExtraPeopleFields'
@@ -139,6 +140,20 @@ type NavId =
   | 'lists'
   | 'reports'
   | 'settings'
+
+const NAV_IDS: NavId[] = [
+  'dialer',
+  'recents',
+  'contacts',
+  'pipeline',
+  'lists',
+  'reports',
+  'settings',
+]
+
+function isNavId(value: string | undefined): value is NavId {
+  return !!value && NAV_IDS.includes(value as NavId)
+}
 
 const DEFAULT_CONTRACT_EMAIL_SUBJECT = 'Your contract from {{brand}}'
 const DEFAULT_CONTRACT_EMAIL_BODY = `Hi {{client_name}},
@@ -246,30 +261,52 @@ export default function App({
   onAvatarChange: (avatarUrl: string) => void
 }) {
   const [agents, setAgents] = useState<Agent[]>([currentAgent])
-  const [nav, setNav] = useState<NavId>('recents')
+  const savedPlace = loadPlace()
+  const [nav, setNav] = useState<NavId>(isNavId(savedPlace?.nav) ? savedPlace.nav : 'recents')
   const [filter, setFilter] = useState<'all' | 'missed'>('all')
   // ClickClick tabs are cold-call statuses; CLocal tabs are list membership
   // (a contact can be on more than one CLocal list at once — e.g. waitlist
   // AND newsletter — so these are non-exclusive tag filters, not stages).
-  const [contactFilter, setContactFilter] = useState('all')
+  const [contactFilter, setContactFilter] = useState(savedPlace?.contactFilter || 'all')
   // Industry filter — CLocal only, independent of contactFilter above (a
   // contact's list membership and its business category are unrelated axes).
-  const [categoryFilter, setCategoryFilter] = useState<'all' | IndustryCategory>('all')
+  const [categoryFilter, setCategoryFilter] = useState<'all' | IndustryCategory>(
+    savedPlace?.categoryFilter &&
+      (savedPlace.categoryFilter === 'all' ||
+        (INDUSTRY_CATEGORIES as readonly string[]).includes(savedPlace.categoryFilter))
+      ? (savedPlace.categoryFilter as 'all' | IndustryCategory)
+      : 'all',
+  )
   // Which brand's contacts the Contacts list / Pipeline board show. Defaults
   // to ClickClick — it's the parent company (Kathryn's call), and more
   // brands land here after CLocal, so ClickClick stays the home base even
   // while CLocal happens to be where the real day-to-day activity is today.
-  const [contactsBrand, setContactsBrand] = useState<BrandId>('clickclick')
+  const [contactsBrand, setContactsBrand] = useState<BrandId>(
+    savedPlace?.contactsBrand === 'clocal' ? 'clocal' : 'clickclick',
+  )
   const [csvImporting, setCsvImporting] = useState(false)
   const [screeningAll, setScreeningAll] = useState(false)
-  const [composingNew, setComposingNew] = useState(false)
+  const [composingNew, setComposingNew] = useState(Boolean(savedPlace?.composingNew))
   const [savingContact, setSavingContact] = useState(false)
   const [customLists, setCustomLists] = useState<CustomList[]>(() => loadCustomLists())
   const csvInputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
   const [selectedCallId, setSelectedCallId] = useState(CALLS[0].id)
-  const [selectedContactId, setSelectedContactId] = useState(CALLS[0].contactId)
+  const [selectedContactId, setSelectedContactId] = useState(
+    savedPlace?.selectedContactId || CALLS[0].contactId,
+  )
   const [notes, setNotes] = useState('')
+
+  useEffect(() => {
+    savePlace({
+      nav,
+      composingNew,
+      contactsBrand,
+      contactFilter,
+      categoryFilter,
+      selectedContactId,
+    })
+  }, [nav, composingNew, contactsBrand, contactFilter, categoryFilter, selectedContactId])
   const [activeObjection, setActiveObjection] = useState<string | null>(null)
   const [onCall, setOnCall] = useState(false)
   const [muted, setMuted] = useState(false)

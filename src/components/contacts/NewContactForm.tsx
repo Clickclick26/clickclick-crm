@@ -1,5 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { BRANDS, type BrandId } from '../../data/mock'
+import {
+  loadNewContactDraft,
+  saveNewContactDraft,
+  clearNewContactDraft,
+} from '../../lib/sessionPlace'
 import { listsForBrand, type CustomList } from '../../lib/contactLists'
 import { PERSON_ROLES, type ExtraPerson, type PersonRole } from '../../lib/people'
 import { ExtraPeopleFields } from './ExtraPeopleFields'
@@ -33,20 +38,41 @@ export function NewContactForm({
   onSave: (draft: NewContactDraft, addAnother: boolean) => Promise<void>
   onCancel: () => void
 }) {
-  const allowed = new Set(listsForBrand(defaultBrand, customLists).map((l) => l.id))
-  const [name, setName] = useState('')
-  const [personRole, setPersonRole] = useState<PersonRole>('main')
-  const [extraPeople, setExtraPeople] = useState<ExtraPerson[]>([])
-  const [company, setCompany] = useState('')
-  const [email, setEmail] = useState('')
-  const [phone, setPhone] = useState('')
-  const [linkedinUrl, setLinkedinUrl] = useState('')
-  const [location, setLocation] = useState('')
-  const [brandId, setBrandId] = useState<BrandId>(defaultBrand)
-  const [tags, setTags] = useState<string[]>(defaultTags.filter((t) => allowed.has(t)))
-  const [notes, setNotes] = useState('')
+  const saved = loadNewContactDraft<NewContactDraft>()
+  const allowed = new Set(listsForBrand(saved?.brandId ?? defaultBrand, customLists).map((l) => l.id))
+  const [name, setName] = useState(saved?.name ?? '')
+  const [personRole, setPersonRole] = useState<PersonRole>(saved?.personRole ?? 'main')
+  const [extraPeople, setExtraPeople] = useState<ExtraPerson[]>(saved?.extraPeople ?? [])
+  const [company, setCompany] = useState(saved?.company ?? '')
+  const [email, setEmail] = useState(saved?.email ?? '')
+  const [phone, setPhone] = useState(saved?.phone ?? '')
+  const [linkedinUrl, setLinkedinUrl] = useState(saved?.linkedinUrl ?? '')
+  const [location, setLocation] = useState(saved?.location ?? '')
+  const [brandId, setBrandId] = useState<BrandId>(saved?.brandId ?? defaultBrand)
+  const [tags, setTags] = useState<string[]>(
+    saved?.tags?.filter((t) => allowed.has(t)) ?? defaultTags.filter((t) => allowed.has(t)),
+  )
+  const [notes, setNotes] = useState(saved?.notes ?? '')
 
   const lists = listsForBrand(brandId, customLists)
+
+  const liveDraft: NewContactDraft = {
+    name,
+    personRole,
+    extraPeople,
+    company,
+    email,
+    phone,
+    linkedinUrl,
+    location,
+    brandId,
+    tags,
+    notes,
+  }
+
+  useEffect(() => {
+    saveNewContactDraft(liveDraft)
+  }, [liveDraft])
 
   function resetFields() {
     setName('')
@@ -58,6 +84,7 @@ export function NewContactForm({
     setLinkedinUrl('')
     setLocation('')
     setNotes('')
+    clearNewContactDraft()
   }
 
   function toggleTag(id: string) {
@@ -85,6 +112,7 @@ export function NewContactForm({
     }
     await onSave(draft, addAnother)
     if (addAnother) resetFields()
+    else clearNewContactDraft()
   }
 
   return (
@@ -234,7 +262,15 @@ export function NewContactForm({
         >
           Save & add another
         </button>
-        <button type="button" className="btn ghost" disabled={saving} onClick={onCancel}>
+        <button
+          type="button"
+          className="btn ghost"
+          disabled={saving}
+          onClick={() => {
+            clearNewContactDraft()
+            onCancel()
+          }}
+        >
           Cancel
         </button>
       </div>
