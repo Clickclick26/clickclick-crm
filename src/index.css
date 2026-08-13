@@ -875,6 +875,14 @@ button {
   gap: 12px;
 }
 
+.person-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.7fr) 1fr auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
 .list-picks {
   display: flex;
   flex-wrap: wrap;

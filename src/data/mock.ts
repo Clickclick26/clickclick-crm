@@ -1,3 +1,5 @@
+import type { ExtraPerson, PersonRole } from '../lib/people'
+
 export type CallStatus = 'missed' | 'inbound' | 'outbound'
 export type PipelineStage = 'new' | 'talking' | 'proposal' | 'won' | 'lost'
 export type CallOutcome =
@@ -37,6 +39,10 @@ export type Contact = {
   tpsScreenedAt?: string
   /** LinkedIn profile URL — stored in notes until a real column exists. */
   linkedinUrl: string
+  /** Role of the main name — founder, co-founder, decision maker, etc. */
+  personRole: PersonRole
+  /** Extra people at the same company (co-founders, other decision makers). */
+  extraPeople: ExtraPerson[]
 }
 
 // Deliberately the exact same list as CLocal/constants/categories.ts's
@@ -84,6 +90,8 @@ export const EMPTY_CONTACT: Contact = {
   locality: '',
   tpsStatus: 'unscreened',
   linkedinUrl: '',
+  personRole: 'main',
+  extraPeople: [],
 }
 
 export type PhoneRegion = 'belfast' | 'london' | 'scotland' | 'wales' | 'other'

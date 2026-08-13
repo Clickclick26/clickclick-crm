@@ -3,6 +3,7 @@ import type { CsvContactRow } from '../csv'
 import type { Database } from './types'
 import type { Agent, BrandId, Contact, IndustryCategory, PipelineStage, TpsStatus } from '../../data/mock'
 import { parseLinkedinUrl, upsertLinkedinInNotes } from '../linkedin'
+import { parsePeople, upsertPeopleInNotes, type ExtraPerson, type PersonRole } from '../people'
 
 type ContactUpdate = Database['public']['Tables']['contacts']['Update']
 type ContactInsert = Database['public']['Tables']['contacts']['Insert']
@@ -35,6 +36,7 @@ type ContactRow = {
 }
 
 function toContact(row: ContactRow, agentsById: Map<string, Agent>): Contact {
+  const people = parsePeople(row.notes)
   return {
     id: row.id,
     name: row.name,
@@ -58,6 +60,8 @@ function toContact(row: ContactRow, agentsById: Map<string, Agent>): Contact {
     tpsStatus: row.tps_status,
     tpsScreenedAt: row.tps_screened_at ?? undefined,
     linkedinUrl: parseLinkedinUrl(row.notes),
+    personRole: people.role,
+    extraPeople: people.extra,
   }
 }
 
@@ -130,6 +134,8 @@ export type CreateContactInput = {
   ownerId: string
   linkedinUrl?: string
   locality?: string
+  personRole?: PersonRole
+  extraPeople?: ExtraPerson[]
 }
 
 export type CreateContactResult =
@@ -151,7 +157,10 @@ export async function createContact(
   const email = input.email.trim().toLowerCase()
   const phone = input.phone.trim()
   const linkedinUrl = input.linkedinUrl?.trim() ?? ''
-  const notes = upsertLinkedinInNotes(input.notes, linkedinUrl)
+  const notes = upsertLinkedinInNotes(
+    upsertPeopleInNotes(input.notes, input.personRole ?? 'main', input.extraPeople ?? []),
+    linkedinUrl,
+  )
 
   if (email) {
     const { data: existing, error: lookupError } = await supabase
@@ -202,6 +211,8 @@ export async function updateContactDetails(
     notes?: string
     linkedinUrl?: string
     currentNotes?: string
+    personRole?: PersonRole
+    extraPeople?: ExtraPerson[]
   },
 ) {
   const db: ContactUpdate = { updated_at: new Date().toISOString() }
@@ -215,10 +226,25 @@ export async function updateContactDetails(
     db.tps_status = 'unscreened'
     db.tps_screened_at = null
   }
-  if (patch.linkedinUrl !== undefined) {
-    db.notes = upsertLinkedinInNotes(patch.currentNotes ?? '', patch.linkedinUrl)
-  } else if (patch.notes !== undefined) {
-    db.notes = patch.notes
+  const touchesNotes =
+    patch.notes !== undefined ||
+    patch.linkedinUrl !== undefined ||
+    patch.personRole !== undefined ||
+    patch.extraPeople !== undefined
+  if (touchesNotes) {
+    let next = patch.currentNotes ?? patch.notes ?? ''
+    if (patch.notes !== undefined) next = patch.notes
+    const parsed = parsePeople(next)
+    next = upsertPeopleInNotes(
+      next,
+      patch.personRole ?? parsed.role,
+      patch.extraPeople ?? parsed.extra,
+    )
+    next = upsertLinkedinInNotes(
+      next,
+      patch.linkedinUrl !== undefined ? patch.linkedinUrl : parseLinkedinUrl(next),
+    )
+    db.notes = next
   }
   const { error } = await supabase.from('contacts').update(db).eq('id', id)
   if (error) throw error

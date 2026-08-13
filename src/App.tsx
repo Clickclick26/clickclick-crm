@@ -98,6 +98,8 @@ import {
   updateContactStage,
 } from './lib/supabase/contacts'
 import { upsertLinkedinInNotes } from './lib/linkedin'
+import { PERSON_ROLES, upsertPeopleInNotes, type ExtraPerson, type PersonRole } from './lib/people'
+import { ExtraPeopleFields } from './components/contacts/ExtraPeopleFields'
 import {
   addCustomList,
   listsForBrand,
@@ -720,7 +722,7 @@ export default function App({
         return false
       if (!q) return true
       const hay =
-        `${c.name} ${c.company} ${c.phone} ${c.email} ${c.tags.join(' ')} ${c.industry ?? ''} ${c.locality} ${c.linkedinUrl}`.toLowerCase()
+        `${c.name} ${c.company} ${c.phone} ${c.email} ${c.tags.join(' ')} ${c.industry ?? ''} ${c.locality} ${c.linkedinUrl} ${c.extraPeople.map((p) => p.name).join(' ')}`.toLowerCase()
       return hay.includes(q)
     })
   }, [contacts, query, contactFilter, contactsBrand, categoryFilter])
@@ -868,6 +870,8 @@ export default function App({
           ownerId: currentAgent.id,
           linkedinUrl: draft.linkedinUrl,
           locality: draft.location,
+          personRole: draft.personRole,
+          extraPeople: draft.extraPeople,
         },
         agents,
       )
@@ -953,6 +957,30 @@ export default function App({
         showToast('Could not save LinkedIn — try again.')
       },
     )
+  }
+
+  function saveContactPeople(person: Contact, role: PersonRole, extra: ExtraPerson[]) {
+    const clean = extra.filter((p) => p.name.trim())
+    const notesWith = upsertLinkedinInNotes(
+      upsertPeopleInNotes(person.notes, role, extra),
+      person.linkedinUrl,
+    )
+    setNotes(notesWith)
+    setContacts((prev) =>
+      prev.map((c) =>
+        c.id === person.id
+          ? { ...c, personRole: role, extraPeople: clean, notes: notesWith }
+          : c,
+      ),
+    )
+    updateContactDetails(person.id, {
+      personRole: role,
+      extraPeople: extra,
+      currentNotes: person.notes,
+    }).catch((err) => {
+      console.error('Failed to save people', err)
+      showToast('Could not save people — try again.')
+    })
   }
 
   function toggleContactListTag(person: Contact, tag: string) {
@@ -2434,15 +2462,48 @@ export default function App({
                       <div className="span-2">
                         <dt>Name</dt>
                         <dd>
-                          <input
-                            key={`${contact.id}-name`}
-                            className="followup-date"
-                            defaultValue={contact.name}
-                            onBlur={(e) => {
-                              const value = e.target.value.trim()
-                              if (!value || value === contact.name) return
-                              saveContactField(contact, { name: value })
-                            }}
+                          <div className="new-contact-row">
+                            <input
+                              key={`${contact.id}-name`}
+                              className="followup-date"
+                              defaultValue={contact.name}
+                              onBlur={(e) => {
+                                const value = e.target.value.trim()
+                                if (!value || value === contact.name) return
+                                saveContactField(contact, { name: value })
+                              }}
+                            />
+                            <select
+                              className="followup-date"
+                              value={contact.personRole}
+                              onChange={(e) => {
+                                const role = e.target.value as PersonRole
+                                saveContactPeople(contact, role, contact.extraPeople)
+                              }}
+                            >
+                              {PERSON_ROLES.map((role) => (
+                                <option key={role.id} value={role.id}>
+                                  {role.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </dd>
+                      </div>
+                      <div className="span-2">
+                        <dd>
+                          <ExtraPeopleFields
+                            people={contact.extraPeople}
+                            onChange={(next) =>
+                              setContacts((prev) =>
+                                prev.map((c) =>
+                                  c.id === contact.id ? { ...c, extraPeople: next } : c,
+                                ),
+                              )
+                            }
+                            onCommit={(next) =>
+                              saveContactPeople(contact, contact.personRole, next)
+                            }
                           />
                         </dd>
                       </div>
@@ -2694,7 +2755,10 @@ export default function App({
                       onChange={(e) => setNotes(e.target.value)}
                       onBlur={() => {
                         if (!contact.id) return
-                        const text = upsertLinkedinInNotes(notes, contact.linkedinUrl)
+                        const text = upsertLinkedinInNotes(
+                          upsertPeopleInNotes(notes, contact.personRole, contact.extraPeople),
+                          contact.linkedinUrl,
+                        )
                         setNotes(text)
                         saveContactNotes(contact.id, text)
                           .then(() => showToast('Notes saved.'))

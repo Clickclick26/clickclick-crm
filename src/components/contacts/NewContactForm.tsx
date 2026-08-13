@@ -1,9 +1,13 @@
 import { useState } from 'react'
 import { BRANDS, type BrandId } from '../../data/mock'
 import { listsForBrand, type CustomList } from '../../lib/contactLists'
+import { PERSON_ROLES, type ExtraPerson, type PersonRole } from '../../lib/people'
+import { ExtraPeopleFields } from './ExtraPeopleFields'
 
 export type NewContactDraft = {
   name: string
+  personRole: PersonRole
+  extraPeople: ExtraPerson[]
   company: string
   email: string
   phone: string
@@ -31,6 +35,8 @@ export function NewContactForm({
 }) {
   const allowed = new Set(listsForBrand(defaultBrand, customLists).map((l) => l.id))
   const [name, setName] = useState('')
+  const [personRole, setPersonRole] = useState<PersonRole>('main')
+  const [extraPeople, setExtraPeople] = useState<ExtraPerson[]>([])
   const [company, setCompany] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
@@ -44,6 +50,8 @@ export function NewContactForm({
 
   function resetFields() {
     setName('')
+    setPersonRole('main')
+    setExtraPeople([])
     setCompany('')
     setEmail('')
     setPhone('')
@@ -64,6 +72,8 @@ export function NewContactForm({
   async function submit(addAnother: boolean) {
     const draft: NewContactDraft = {
       name: name.trim(),
+      personRole,
+      extraPeople,
       company: company.trim(),
       email: email.trim(),
       phone: phone.trim(),
@@ -85,16 +95,33 @@ export function NewContactForm({
         screened, so you can’t call them until TPS/CTPS is checked.
       </p>
 
-      <label className="new-contact-field">
-        Name
-        <input
-          className="followup-date"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Jane Smith"
-          autoFocus
-        />
-      </label>
+      <div className="new-contact-row">
+        <label className="new-contact-field">
+          Name
+          <input
+            className="followup-date"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Jane Smith"
+            autoFocus
+          />
+        </label>
+        <label className="new-contact-field">
+          Role
+          <select
+            className="followup-date"
+            value={personRole}
+            onChange={(e) => setPersonRole(e.target.value as PersonRole)}
+          >
+            {PERSON_ROLES.map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <ExtraPeopleFields people={extraPeople} onChange={setExtraPeople} />
       <label className="new-contact-field">
         Company
         <input
