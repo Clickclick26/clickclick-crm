@@ -156,14 +156,14 @@ function confirmEmailHtml(name: string): string {
               <p style="margin:0 0 14px;font-size:16px;line-height:1.55;">Hi ${who},</p>
               <p style="margin:0 0 14px;font-size:16px;line-height:1.55;">
                 Thanks for joining. CLocal is invite-only in South Belfast right now.
-                We help neighbours <strong>Love Local</strong>: real neighbourhood video,
+                We help neighbours <strong>support local</strong>: real neighbourhood video,
                 complimentary gift invites, and LocalGems near you.
               </p>
               <p style="margin:0 0 14px;font-size:16px;line-height:1.55;">
                 When your invite is ready, we'll email you here. No spam. Just the good stuff.
               </p>
               <p style="margin:24px 0 0;font-size:14px;line-height:1.5;color:#4a6662;">
-                Love local,<br />The CLocal team
+                Support local,<br />The CLocal team
               </p>
               <p style="margin:20px 0 0;font-size:12px;color:#7a9290;">
                 <a href="https://clocal.co.uk" style="color:#008080;">clocal.co.uk</a>
