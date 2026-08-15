@@ -46,6 +46,7 @@ import {
   Copy,
   ExternalLink,
   UserPlus,
+  Trash2,
 } from 'lucide-react'
 import {
   BRANDS,
@@ -86,11 +87,14 @@ import { fetchAgents } from './lib/supabase/agents'
 import { parseContactCsv } from './lib/csv'
 import { parseInstagramBlock } from './lib/instagram'
 import {
+  archiveContact,
   createContact,
   fetchContacts,
   importCsvContacts,
   isFollowUpDue,
+  mergeContacts,
   screenContactsForTps,
+  unarchiveContact,
   updateContactCategory,
   updateContactDetails,
   updateContactFollowUp,
@@ -99,8 +103,15 @@ import {
 } from './lib/supabase/contacts'
 import { loadPlace, savePlace } from './lib/sessionPlace'
 import { saveFailMessage } from './lib/supabase/session'
-import { upsertLinkedinInNotes } from './lib/linkedin'
-import { PERSON_ROLES, upsertPeopleInNotes, type ExtraPerson, type PersonRole } from './lib/people'
+import { upsertLinkedinInNotes, notesWithoutLinkedin } from './lib/linkedin'
+import {
+  PERSON_ROLES,
+  upsertPeopleInNotes,
+  notesWithoutPeople,
+  roleLabel,
+  type ExtraPerson,
+  type PersonRole,
+} from './lib/people'
 import { ExtraPeopleFields } from './components/contacts/ExtraPeopleFields'
 import {
   addCustomList,
@@ -167,6 +178,13 @@ Best,
 {{agent}}`
 
 const WAVE = [28, 55, 40, 72, 35, 80, 48, 62, 30, 70, 45, 85, 38, 60, 50, 75, 42, 68, 33, 58]
+
+/** The People/LinkedIn blocks live inside `notes` in the DB (no extra columns),
+ * but they have their own editors (Role/Other people, LinkedIn field) — the
+ * plain Notes box should never show that raw marker text. */
+function stripMetaNotes(raw: string): string {
+  return notesWithoutLinkedin(notesWithoutPeople(raw))
+}
 
 function statusLabel(status: CallRecord['status']) {
   if (status === 'missed') return 'Missed Call'
@@ -314,7 +332,10 @@ export default function App({
   const [recording, setRecording] = useState(false)
   const [listeningIn, setListeningIn] = useState(false)
   const [outcome, setOutcome] = useState<CallOutcome | null>(null)
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<{
+    message: string
+    action?: { label: string; onClick: () => void }
+  } | null>(null)
   const [emailSubject, setEmailSubject] = useState('Quick follow-up from ClickClick')
   const [emailBody, setEmailBody] = useState('')
   const [emailAttachments, setEmailAttachments] = useState<File[]>([])
@@ -377,6 +398,9 @@ export default function App({
   const [larkMeetingUrl, setLarkMeetingUrl] = useState<string | null>(null)
   const [referrals, setReferrals] = useState<Referral[]>([])
   const [redeemCodeDraft, setRedeemCodeDraft] = useState('')
+  const [mergeSearch, setMergeSearch] = useState('')
+  const [mergeTarget, setMergeTarget] = useState<Contact | null>(null)
+  const [merging, setMerging] = useState(false)
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement>(null)
 
@@ -398,7 +422,7 @@ export default function App({
         remindFollowUpsIfNeeded({
           dueCount: due,
           onToast: (msg) => {
-            setToast(msg)
+            setToast({ message: msg })
             window.setTimeout(() => setToast(null), 4200)
           },
           openDueList: () => {
@@ -442,6 +466,20 @@ export default function App({
     contactById(selectedContactId) ?? contactById(selectedCall.contactId) ?? EMPTY_CONTACT
 
   const liveAgent = agents.find((a) => a.onCallWith)
+
+  // Duplicate-merge picker: same brand, not this contact, matches on name/company/phone/email.
+  const mergeQuery = mergeSearch.trim().toLowerCase()
+  const mergeCandidates =
+    mergeQuery.length < 2
+      ? []
+      : contacts
+          .filter(
+            (c) =>
+              c.id !== contact.id &&
+              c.brandId === contact.brandId &&
+              `${c.name} ${c.company} ${c.phone} ${c.email}`.toLowerCase().includes(mergeQuery),
+          )
+          .slice(0, 6)
 
   // Referral this contact can hand out to someone else.
   const outgoingReferral = referrals.find((r) => r.referrerContactId === contact.id)
@@ -908,6 +946,9 @@ export default function App({
           ownerId: currentAgent.id,
           linkedinUrl: draft.linkedinUrl,
           locality: draft.location,
+          region: draft.region,
+          industry: draft.industry,
+          nextCallback: draft.nextCallback,
           personRole: draft.personRole,
           extraPeople: draft.extraPeople,
         },
@@ -967,6 +1008,43 @@ export default function App({
     }
   }
 
+  /** Removes a contact from the list instantly (archives, doesn't hard-delete —
+   * calls/deals have no ON DELETE rule, so a real delete on someone with call
+   * history would throw). Undo-able for a few seconds via the toast action. */
+  function handleDeleteContact(person: Contact) {
+    setContacts((prev) => prev.filter((c) => c.id !== person.id))
+    if (selectedContactId === person.id) setSelectedContactId('')
+    showToast(`Removed ${person.name}.`, {
+      label: 'Undo',
+      onClick: () => {
+        setContacts((prev) => [person, ...prev.filter((c) => c.id !== person.id)])
+        unarchiveContact(person.id).catch((err) => console.error('Failed to undo delete', err))
+      },
+    })
+    archiveContact(person.id).catch((err) => {
+      console.error('Failed to delete contact', err)
+      setContacts((prev) => [person, ...prev.filter((c) => c.id !== person.id)])
+      showToast(saveFailMessage(err))
+    })
+  }
+
+  /** The current contact is always "keep" — the picked one gets archived into it. */
+  async function handleMergeConfirm(person: Contact, target: Contact) {
+    setMerging(true)
+    try {
+      await mergeContacts(person.id, target.id)
+      setContacts(await fetchContacts(agents))
+      setMergeTarget(null)
+      setMergeSearch('')
+      showToast(`Merged ${target.name} into ${person.name}.`)
+    } catch (err) {
+      console.error('Failed to merge contacts', err)
+      showToast(saveFailMessage(err))
+    } finally {
+      setMerging(false)
+    }
+  }
+
   function saveContactField(
     person: Contact,
     patch: { name?: string; company?: string; phone?: string; email?: string; tags?: string[] },
@@ -987,7 +1065,7 @@ export default function App({
   function saveContactLinkedin(person: Contact, url: string) {
     if (!person.id) return
     const notesWithUrl = upsertLinkedinInNotes(person.notes, url)
-    setNotes(notesWithUrl)
+    setNotes(stripMetaNotes(notesWithUrl))
     setContacts((prev) =>
       prev.map((c) =>
         c.id === person.id ? { ...c, linkedinUrl: url.trim(), notes: notesWithUrl } : c,
@@ -1008,7 +1086,7 @@ export default function App({
       upsertPeopleInNotes(person.notes, role, extra),
       person.linkedinUrl,
     )
-    setNotes(notesWith)
+    setNotes(stripMetaNotes(notesWith))
     setContacts((prev) =>
       prev.map((c) =>
         c.id === person.id
@@ -1202,9 +1280,9 @@ export default function App({
     }
   }
 
-  function showToast(msg: string) {
-    setToast(msg)
-    window.setTimeout(() => setToast(null), 2800)
+  function showToast(msg: string, action?: { label: string; onClick: () => void }) {
+    setToast({ message: msg, action })
+    window.setTimeout(() => setToast(null), action ? 6000 : 2800)
   }
 
   /** Single save path for contact notes — used by the notes box's onBlur AND
@@ -1217,13 +1295,19 @@ export default function App({
 
   /** Switching contact/call overwrites the notes box with the new person's
    * notes — if there's an unsaved edit for whoever was open, save it first
-   * so it isn't silently discarded. */
+   * so it isn't silently discarded. `notes` only ever holds the plain-text
+   * part the agent can see and edit; the LinkedIn/People blocks are merged
+   * back in here from the source of truth (contact.personRole/extraPeople/
+   * linkedinUrl) so a flush never drops them. */
   function flushPendingNotes() {
-    if (contact.id && notes !== contact.notes) {
-      saveContactNotes(contact.id, notes).catch((err) =>
-        console.error('Failed to save notes before switching contact', err),
-      )
-    }
+    if (!contact.id || notes === stripMetaNotes(contact.notes)) return
+    const merged = upsertLinkedinInNotes(
+      upsertPeopleInNotes(notes, contact.personRole, contact.extraPeople),
+      contact.linkedinUrl,
+    )
+    saveContactNotes(contact.id, merged).catch((err) =>
+      console.error('Failed to save notes before switching contact', err),
+    )
   }
 
   function selectCall(call: CallRecord) {
@@ -1232,7 +1316,7 @@ export default function App({
     setSelectedContactId(call.contactId)
     const person = contactById(call.contactId)
     if (person) {
-      setNotes(person.notes)
+      setNotes(stripMetaNotes(person.notes))
       setEmailBody(
         `Hi ${person.name.split(' ')[0]},\n\nGreat speaking — here’s a short follow-up from ClickClick.\n\nBest,\n${currentAgent.name}`,
       )
@@ -1248,7 +1332,7 @@ export default function App({
     flushPendingNotes()
     setComposingNew(false)
     setSelectedContactId(person.id)
-    setNotes(person.notes)
+    setNotes(stripMetaNotes(person.notes))
     setEmailBody(
       `Hi ${person.name.split(' ')[0]},\n\nGreat speaking — here’s a short follow-up from ClickClick.\n\nBest,\n${currentAgent.name}`,
     )
@@ -1659,27 +1743,44 @@ export default function App({
             <div className="list">
               {nav === 'contacts'
                 ? filteredContacts.map((person) => (
-                    <button
+                    <div
                       key={person.id}
-                      className={`list-row ${selectedContactId === person.id ? 'active' : ''}`}
-                      onClick={() => selectContact(person)}
+                      className={`list-row list-row-contact ${selectedContactId === person.id ? 'active' : ''}`}
                     >
-                      <div>
-                        <div className="call-phone">{person.name}</div>
-                        <div className="call-meta">
-                          {person.company
-                            ? `${person.company} · `
-                            : ''}
-                          {person.phone || person.email}
-                          {person.tags.includes('replied')
-                            ? ' · replied'
-                            : person.tags.includes('warmed')
-                              ? ' · warmed'
+                      <button
+                        type="button"
+                        className="list-row-select"
+                        onClick={() => selectContact(person)}
+                      >
+                        <div>
+                          <div className="call-phone">{person.name}</div>
+                          <div className="call-meta">
+                            {person.company
+                              ? `${person.company} · `
                               : ''}
+                            {person.phone || person.email}
+                            {person.tags.includes('replied')
+                              ? ' · replied'
+                              : person.tags.includes('warmed')
+                                ? ' · warmed'
+                                : ''}
+                          </div>
                         </div>
-                      </div>
-                      <div className="call-when">{STAGE_LABEL[person.stage]}</div>
-                    </button>
+                        <div className="call-when">{STAGE_LABEL[person.stage]}</div>
+                      </button>
+                      <button
+                        type="button"
+                        className="list-row-delete"
+                        title={`Remove ${person.name}`}
+                        aria-label={`Remove ${person.name}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDeleteContact(person)
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   ))
                 : filteredCalls.map((call) => {
                     const person = contactById(call.contactId)
@@ -2223,15 +2324,16 @@ export default function App({
                 <div className="hero-card">
                   <img className="hero-avatar" src={contact.avatar} alt="" />
                   <div>
-                    <p className="hero-phone">{contact.phone}</p>
+                    <p className="hero-phone">{contact.company || contact.name}</p>
                     <p className="hero-line">
-                      Call to {contact.name} · {contact.company}
+                      {contact.name} · {roleLabel(contact.personRole)}
                       {selectedCall.extension ? ` · ${selectedCall.extension}` : ''}
                     </p>
                     <div className="badges">
                       <span className={`badge stage-${contact.stage}`}>
                         {STAGE_LABEL[contact.stage]}
                       </span>
+                      <span className="badge">{contact.phone || 'No phone'}</span>
                       <span className="badge">Owner: {contact.owner}</span>
                       <span className="badge">Source: {contact.source}</span>
                       <span className="badge">Area: {REGION_LABEL[contact.region]}</span>
@@ -2719,6 +2821,32 @@ export default function App({
                         </dd>
                       </div>
                       <div>
+                        <dt>Area</dt>
+                        <dd>
+                          <select
+                            className="followup-date"
+                            value={contact.region}
+                            onChange={(e) => {
+                              const value = e.target.value as Contact['region']
+                              setContacts((prev) =>
+                                prev.map((c) =>
+                                  c.id === contact.id ? { ...c, region: value } : c,
+                                ),
+                              )
+                              updateContactCategory(contact.id, { region: value }).catch((err) =>
+                                console.error('Failed to save area', err),
+                              )
+                            }}
+                          >
+                            {(Object.keys(REGION_LABEL) as Contact['region'][]).map((r) => (
+                              <option key={r} value={r}>
+                                {REGION_LABEL[r]}
+                              </option>
+                            ))}
+                          </select>
+                        </dd>
+                      </div>
+                      <div>
                         <dt>Follow-up</dt>
                         <dd>
                           <input
@@ -2803,7 +2931,7 @@ export default function App({
                           upsertPeopleInNotes(notes, contact.personRole, contact.extraPeople),
                           contact.linkedinUrl,
                         )
-                        setNotes(text)
+                        setNotes(stripMetaNotes(text))
                         saveContactNotes(contact.id, text)
                           .then(() => showToast('Notes saved.'))
                           .catch((err) => {
@@ -2812,6 +2940,67 @@ export default function App({
                           })
                       }}
                     />
+
+                    <div className="deal-section" style={{ marginTop: 16 }}>
+                      <p className="deal-label">Duplicate? Merge into this person</p>
+                      {mergeTarget ? (
+                        <div>
+                          <p className="muted" style={{ marginTop: 0 }}>
+                            Merge <strong>{mergeTarget.name}</strong>
+                            {mergeTarget.company ? ` (${mergeTarget.company})` : ''} into{' '}
+                            <strong>{contact.name}</strong>? Their calls, deals, tags and notes
+                            move over here, then they're removed from the list.
+                          </p>
+                          <div className="btn-row">
+                            <button
+                              type="button"
+                              className="btn primary"
+                              disabled={merging}
+                              onClick={() => void handleMergeConfirm(contact, mergeTarget)}
+                            >
+                              {merging ? 'Merging…' : 'Confirm merge'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn ghost"
+                              disabled={merging}
+                              onClick={() => setMergeTarget(null)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <input
+                            className="followup-date"
+                            value={mergeSearch}
+                            onChange={(e) => setMergeSearch(e.target.value)}
+                            placeholder="Search by name, company, phone or email…"
+                          />
+                          {mergeCandidates.length > 0 && (
+                            <div className="list-picks" style={{ marginTop: 8 }}>
+                              {mergeCandidates.map((c) => (
+                                <button
+                                  key={c.id}
+                                  type="button"
+                                  className="outcome-btn"
+                                  onClick={() => setMergeTarget(c)}
+                                >
+                                  {c.name}
+                                  {c.company ? ` · ${c.company}` : ''}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {mergeQuery.length >= 2 && mergeCandidates.length === 0 && (
+                            <p className="muted" style={{ marginBottom: 0 }}>
+                              No matches on this brand.
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -3337,7 +3526,23 @@ export default function App({
 
       {payConfetti && <PayConfettiBurst />}
 
-      {toast && <div className="toast">{toast}</div>}
+      {toast && (
+        <div className="toast">
+          {toast.message}
+          {toast.action && (
+            <button
+              type="button"
+              className="toast-action"
+              onClick={() => {
+                toast.action?.onClick()
+                setToast(null)
+              }}
+            >
+              {toast.action.label}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react'
-import { BRANDS, type BrandId } from '../../data/mock'
+import {
+  BRANDS,
+  INDUSTRY_CATEGORIES,
+  REGION_LABEL,
+  type BrandId,
+  type IndustryCategory,
+  type PhoneRegion,
+} from '../../data/mock'
 import {
   loadNewContactDraft,
   saveNewContactDraft,
@@ -19,7 +26,10 @@ export type NewContactDraft = {
   phone: string
   linkedinUrl: string
   location: string
+  region: PhoneRegion
   brandId: BrandId
+  industry: IndustryCategory | null
+  nextCallback: string
   tags: string[]
   notes: string
 }
@@ -49,7 +59,10 @@ export function NewContactForm({
   const [phone, setPhone] = useState(saved?.phone ?? '')
   const [linkedinUrl, setLinkedinUrl] = useState(saved?.linkedinUrl ?? '')
   const [location, setLocation] = useState(saved?.location ?? '')
+  const [region, setRegion] = useState<PhoneRegion>(saved?.region ?? 'other')
   const [brandId, setBrandId] = useState<BrandId>(saved?.brandId ?? defaultBrand)
+  const [industry, setIndustry] = useState<IndustryCategory | null>(saved?.industry ?? null)
+  const [nextCallback, setNextCallback] = useState(saved?.nextCallback ?? '')
   const [tags, setTags] = useState<string[]>(
     saved?.tags?.filter((t) => allowed.has(t)) ?? defaultTags.filter((t) => allowed.has(t)),
   )
@@ -66,7 +79,10 @@ export function NewContactForm({
     phone,
     linkedinUrl,
     location,
+    region,
     brandId,
+    industry,
+    nextCallback,
     tags,
     notes,
   }
@@ -84,6 +100,9 @@ export function NewContactForm({
     setPhone('')
     setLinkedinUrl('')
     setLocation('')
+    setRegion('other')
+    setIndustry(null)
+    setNextCallback('')
     setNotes('')
     clearNewContactDraft()
   }
@@ -107,7 +126,10 @@ export function NewContactForm({
       phone: phone.trim(),
       linkedinUrl: firstHttpUrl(linkedinUrl),
       location: location.trim(),
+      region,
       brandId,
+      industry,
+      nextCallback,
       tags,
       notes: notes.trim(),
     }
@@ -161,15 +183,34 @@ export function NewContactForm({
           placeholder="Optional"
         />
       </label>
-      <label className="new-contact-field">
-        Location
-        <input
-          className="followup-date"
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-          placeholder="e.g. Lisburn Road, Belfast"
-        />
-      </label>
+      <div className="new-contact-row">
+        <label className="new-contact-field">
+          Location
+          <input
+            className="followup-date"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="e.g. Lisburn Road, Belfast"
+          />
+        </label>
+        <label className="new-contact-field">
+          Area
+          <span className="help" style={{ display: 'block', fontSize: '0.76rem' }}>
+            Matches a local caller ID on the dialer
+          </span>
+          <select
+            className="followup-date"
+            value={region}
+            onChange={(e) => setRegion(e.target.value as PhoneRegion)}
+          >
+            {(Object.keys(REGION_LABEL) as PhoneRegion[]).map((r) => (
+              <option key={r} value={r}>
+                {REGION_LABEL[r]}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <div className="new-contact-row">
         <label className="new-contact-field">
           Email
@@ -220,6 +261,34 @@ export function NewContactForm({
           ))}
         </div>
       </div>
+
+      {brandId === 'clocal' && (
+        <label className="new-contact-field">
+          Category
+          <select
+            className="followup-date"
+            value={industry ?? ''}
+            onChange={(e) => setIndustry((e.target.value || null) as IndustryCategory | null)}
+          >
+            <option value="">— Uncategorised —</option>
+            {INDUSTRY_CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      <label className="new-contact-field">
+        Follow-up
+        <input
+          type="date"
+          className="followup-date"
+          value={nextCallback}
+          onChange={(e) => setNextCallback(e.target.value)}
+        />
+      </label>
 
       <div className="new-contact-field">
         <span>Lists</span>
