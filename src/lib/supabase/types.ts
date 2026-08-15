@@ -54,6 +54,7 @@ export type Database = {
         locality: string
         tps_status: 'unscreened' | 'clear' | 'tps_registered' | 'ctps_registered' | 'check_failed'
         tps_screened_at: string | null
+        archived_at: string | null
         created_at: string
         updated_at: string
       }>

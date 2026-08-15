@@ -70,6 +70,7 @@ export async function fetchContacts(agents: Agent[]): Promise<Contact[]> {
   const { data, error } = await supabase
     .from('contacts')
     .select(CONTACT_COLUMNS)
+    .is('archived_at', null)
     .order('created_at', { ascending: false })
 
   if (error) throw error
@@ -78,9 +79,123 @@ export async function fetchContacts(agents: Agent[]): Promise<Contact[]> {
   return (data ?? []).map((row) => toContact(row as ContactRow, agentsById))
 }
 
+/** "Delete" archives rather than hard-deletes — calls/deals have no ON DELETE
+ * rule, so a real delete on a contact with any history would throw a
+ * foreign-key error mid-scroll. Archived contacts just stop showing up in
+ * fetchContacts. Reversible via unarchiveContact (used for the Undo toast). */
+export async function archiveContact(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('contacts')
+    .update({ archived_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
+}
+
+export async function unarchiveContact(id: string): Promise<void> {
+  const { error } = await supabase.from('contacts').update({ archived_at: null }).eq('id', id)
+  if (error) throw error
+}
+
+/**
+ * Merges `loseId` into `keepId`: every call/deal/referral/list membership
+ * pointing at the duplicate now points at the kept contact, tags and notes
+ * are combined onto the kept contact, and the duplicate is archived (not
+ * hard-deleted, for the same FK reasons as archiveContact).
+ */
+export async function mergeContacts(keepId: string, loseId: string): Promise<void> {
+  if (keepId === loseId) throw new Error('Pick two different people to merge.')
+  await ensureFreshSession()
+
+  const { data: rows, error: fetchErr } = await supabase
+    .from('contacts')
+    .select(CONTACT_COLUMNS)
+    .in('id', [keepId, loseId])
+  if (fetchErr) throw fetchErr
+  const keep = (rows ?? []).find((r) => (r as ContactRow).id === keepId) as ContactRow | undefined
+  const lose = (rows ?? []).find((r) => (r as ContactRow).id === loseId) as ContactRow | undefined
+  if (!keep || !lose) throw new Error('Could not find both contacts to merge.')
+
+  // Reassign dependent rows first — dialer_list_members has a (list_id, contact_id)
+  // primary key, so a straight reassign can collide if the kept contact is
+  // already on the same list; fall back to dropping the duplicate's row.
+  const { error: callsErr } = await supabase
+    .from('calls')
+    .update({ contact_id: keepId })
+    .eq('contact_id', loseId)
+  if (callsErr) throw callsErr
+
+  const { error: dealsErr } = await supabase
+    .from('deals')
+    .update({ contact_id: keepId })
+    .eq('contact_id', loseId)
+  if (dealsErr) throw dealsErr
+
+  const { error: referrerErr } = await supabase
+    .from('referrals')
+    .update({ referrer_contact_id: keepId })
+    .eq('referrer_contact_id', loseId)
+  if (referrerErr) throw referrerErr
+
+  const { error: referredErr } = await supabase
+    .from('referrals')
+    .update({ referred_contact_id: keepId })
+    .eq('referred_contact_id', loseId)
+  if (referredErr) throw referredErr
+
+  const { data: loserLists } = await supabase
+    .from('dialer_list_members')
+    .select('list_id')
+    .eq('contact_id', loseId)
+  for (const { list_id } of (loserLists ?? []) as { list_id: string }[]) {
+    const { error: memberErr } = await supabase
+      .from('dialer_list_members')
+      .update({ contact_id: keepId })
+      .eq('contact_id', loseId)
+      .eq('list_id', list_id)
+    // 23505 = kept contact is already on that list — drop the duplicate's row instead.
+    if (memberErr && memberErr.code === '23505') {
+      await supabase
+        .from('dialer_list_members')
+        .delete()
+        .eq('contact_id', loseId)
+        .eq('list_id', list_id)
+    } else if (memberErr) {
+      throw memberErr
+    }
+  }
+
+  const mergedTags = Array.from(new Set([...(keep.tags ?? []), ...(lose.tags ?? [])]))
+  const keepNotes = keep.notes?.trim() ?? ''
+  const loseNotes = lose.notes?.trim() ?? ''
+  const mergedNotes =
+    !loseNotes || keepNotes.includes(loseNotes)
+      ? keepNotes
+      : keepNotes
+        ? `${keepNotes}\n\n${loseNotes}`
+        : loseNotes
+
+  const patch: ContactUpdate = {
+    tags: mergedTags,
+    notes: mergedNotes,
+    company: keep.company || lose.company,
+    phone: keep.phone || lose.phone,
+    email: keep.email || lose.email,
+    locality: keep.locality || lose.locality,
+    updated_at: new Date().toISOString(),
+  }
+  const { error: patchErr } = await supabase.from('contacts').update(patch).eq('id', keepId)
+  if (patchErr) throw patchErr
+
+  const { error: archiveErr } = await supabase
+    .from('contacts')
+    .update({ archived_at: new Date().toISOString() })
+    .eq('id', loseId)
+  if (archiveErr) throw archiveErr
+}
+
 export async function updateContactCategory(
   id: string,
-  patch: { industry?: IndustryCategory | null; locality?: string },
+  patch: { industry?: IndustryCategory | null; locality?: string; region?: Contact['region'] },
 ) {
   const { error } = await supabase
     .from('contacts')
@@ -137,6 +252,9 @@ export type CreateContactInput = {
   ownerId: string
   linkedinUrl?: string
   locality?: string
+  region?: Contact['region']
+  industry?: IndustryCategory | null
+  nextCallback?: string
   personRole?: PersonRole
   extraPeople?: ExtraPerson[]
 }
@@ -200,9 +318,11 @@ export async function createContact(
     do_not_call: false,
     notes,
     tags: input.tags,
-    region: 'other',
+    region: input.region ?? 'other',
     brand_id: input.brandId,
     locality: input.locality?.trim() ?? '',
+    industry: input.industry ?? null,
+    next_callback: input.nextCallback?.trim() || null,
     tps_status: 'unscreened',
   }
 
