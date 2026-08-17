@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import LottieImport from 'lottie-react'
 import confettiAnimation from './assets/confetti.json'
+import { GeminiSpark } from './components/GeminiSpark'
 import { ListsScreen } from './components/screens/ListsScreen'
 import { ReportsScreen } from './components/screens/ReportsScreen'
 import { PipelineScreen } from './components/screens/PipelineScreen'
@@ -248,6 +249,7 @@ function dealChecklist(status: DealStatus, payType: PayType) {
     allDone: contractDone && payDone,
   }
 }
+
 
 function PayConfettiBurst() {
   if (typeof Lottie !== 'function') {
@@ -2692,7 +2694,9 @@ export default function App({
                         leaving this whole card empty below the script box
                         whenever it was short — moved here to actually use
                         the space, not just match its background color. */}
-                    <h3 style={{ marginTop: 16 }}>AI tools</h3>
+                    <h3 style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <GeminiSpark size={13} /> AI tools
+                    </h3>
                     <div className="deal-section" style={{ marginBottom: 10 }}>
                       <button
                         type="button"
@@ -2700,7 +2704,7 @@ export default function App({
                         disabled={!contact.company.trim() || profileLooking}
                         onClick={() => void runProfileLookup()}
                       >
-                        {profileLooking ? 'Guessing…' : 'AI guess: owner & phone'}
+                        <GeminiSpark size={12} /> {profileLooking ? 'Guessing…' : 'AI guess: owner & phone'}
                       </button>
                       <span
                         className="help"
@@ -2769,7 +2773,9 @@ export default function App({
                     </div>
 
                     <div className="deal-section">
-                      <p className="deal-label">Ask AI about this company</p>
+                      <p className="deal-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <GeminiSpark size={12} /> Ask AI about this company
+                      </p>
                       <div className="deal-fields" style={{ gridTemplateColumns: '2fr 1fr' }}>
                         <label>
                           Question

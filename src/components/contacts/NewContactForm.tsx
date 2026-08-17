@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { GeminiSpark } from '../GeminiSpark'
 import {
   BRANDS,
   INDUSTRY_CATEGORIES,
@@ -226,7 +227,7 @@ export function NewContactForm({
           disabled={!company.trim() || looking}
           onClick={() => void runLookup()}
         >
-          {looking ? 'Guessing…' : 'AI guess: owner & phone'}
+          <GeminiSpark size={12} /> {looking ? 'Guessing…' : 'AI guess: owner & phone'}
         </button>
         <span className="help" style={{ display: 'block', fontSize: '0.76rem', marginTop: 2 }}>
           Not a live search — it's Gemini's memory, so it can be wrong or blank. Always double-check.
