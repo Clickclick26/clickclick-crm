@@ -11,16 +11,21 @@
 // Provider: Provero (https://provero.io/checks/tps-ctps-screening) — chosen
 // for transparent pay-per-check pricing (from £0.004/request, no minimum
 // commitment), which fits a single-agent setup better than a subscription
-// service. Not wired to a real account yet — this returns "not configured"
-// until PROVERO_API_KEY is set.
+// service.
+//
+// Endpoint/shape below is verified against Provero's real API docs
+// (api.provero.io/docs) — an earlier version of this file guessed the shape
+// from their public marketing page and had the wrong endpoint entirely
+// (404s, not even reaching their app). Confirmed live: POST
+// /api/validate/phone-tps, phone in full E.164 with the +, response is
+// { onTps: boolean, registeredDate?, tpsExpiry? } — no field distinguishing
+// personal TPS from corporate CTPS, so both collapse to "tps_registered"
+// here; for "don't call this number" purposes that distinction doesn't
+// matter anyway.
 //
 // Setup (Kathryn):
 //   1. Sign up at https://provero.io, get an API key.
 //   2. supabase secrets set PROVERO_API_KEY=your_key_here
-//   3. Confirm the request/response shape below still matches Provero's
-//      actual docs once you can see them signed in — this was built from
-//      their public marketing page, not their authenticated API reference,
-//      so the auth header name/exact endpoint may need a one-line tweak.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 
@@ -35,12 +40,12 @@ function json(status: number, body: Record<string, unknown>) {
   })
 }
 
-/** UK number normalised to the bare-digits E.164-ish shape Provero's example expects (447700900123, no + or spaces). */
+/** UK number normalised to full E.164 with the + prefix, as Provero's real API expects. */
 function normalizeUkNumber(raw: string): string | null {
   const digits = raw.replace(/[^\d]/g, "")
-  if (digits.startsWith("44")) return digits
-  if (digits.startsWith("0")) return `44${digits.slice(1)}`
-  if (digits.length >= 10) return `44${digits}`
+  if (digits.startsWith("44")) return `+${digits}`
+  if (digits.startsWith("0")) return `+44${digits.slice(1)}`
+  if (digits.length >= 10) return `+44${digits}`
   return null
 }
 
@@ -49,13 +54,13 @@ async function checkOneNumber(phone: string, apiKey: string): Promise<TpsStatus>
   if (!normalized) return "check_failed"
 
   try {
-    const res = await fetch("https://api.provero.io/v1/tps", {
+    const res = await fetch("https://api.provero.io/api/validate/phone-tps", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ tps: { phone: normalized } }),
+      body: JSON.stringify({ phone: normalized }),
     })
 
     if (!res.ok) {
@@ -63,18 +68,8 @@ async function checkOneNumber(phone: string, apiKey: string): Promise<TpsStatus>
       return "check_failed"
     }
 
-    const data = (await res.json()) as {
-      tps?: { result?: boolean; status?: string }
-    }
-
-    // Provero's public docs show `result: true/false` alongside a status
-    // string ("TPS registered" / "CTPS registered" / "Unlisted"). Handle
-    // both shapes defensively since this wasn't verified against a real key.
-    const statusText = (data.tps?.status ?? "").toLowerCase()
-    if (statusText.includes("ctps")) return "ctps_registered"
-    if (statusText.includes("tps")) return "tps_registered"
-    if (data.tps?.result === true) return "tps_registered"
-    return "clear"
+    const data = (await res.json()) as { onTps?: boolean }
+    return data.onTps === true ? "tps_registered" : "clear"
   } catch (err) {
     console.error("Provero TPS check error:", err)
     return "check_failed"
