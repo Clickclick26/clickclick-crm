@@ -33,11 +33,32 @@ type ScreenRequest = { contactIds: string[] }
 
 type TpsStatus = "unscreened" | "clear" | "tps_registered" | "ctps_registered" | "check_failed"
 
-function json(status: number, body: Record<string, unknown>) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  })
+// This function never had CORS handling — every call from the browser (via
+// supabase.functions.invoke) was almost certainly blocked at the preflight
+// stage this whole time, regardless of whether the code behind it worked.
+// curl/server-to-server testing never catches this because there's no
+// browser enforcing CORS — see lark-video-invite's header comment, same bug.
+const ALLOWED_ORIGINS = new Set([
+  "https://clickclick26.github.io",
+  "https://crm.clickclick.video",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+])
+
+function corsHeaders(origin: string | null): Record<string, string> {
+  const allow = origin && ALLOWED_ORIGINS.has(origin) ? origin : "https://clickclick26.github.io"
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Max-Age": "86400",
+    "Content-Type": "application/json",
+    Vary: "Origin",
+  }
+}
+
+function json(status: number, body: Record<string, unknown>, origin: string | null) {
+  return new Response(JSON.stringify(body), { status, headers: corsHeaders(origin) })
 }
 
 /** UK number normalised to full E.164 with the + prefix, as Provero's real API expects. */
@@ -77,8 +98,13 @@ async function checkOneNumber(phone: string, apiKey: string): Promise<TpsStatus>
 }
 
 Deno.serve(async (req) => {
+  const origin = req.headers.get("Origin")
+
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { status: 200, headers: corsHeaders(origin) })
+  }
   if (req.method !== "POST") {
-    return json(405, { error: "Method not allowed" })
+    return json(405, { error: "Method not allowed" }, origin)
   }
 
   const apiKey = Deno.env.get("PROVERO_API_KEY")
@@ -86,22 +112,26 @@ Deno.serve(async (req) => {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
 
   if (!supabaseUrl || !serviceKey) {
-    return json(500, { error: "Server not configured (database)." })
+    return json(500, { error: "Server not configured (database)." }, origin)
   }
   if (!apiKey) {
-    return json(200, {
-      ok: false,
-      configured: false,
-      message:
-        "TPS/CTPS screening isn't connected yet — sign up at provero.io and set PROVERO_API_KEY. Nothing was screened.",
-    })
+    return json(
+      200,
+      {
+        ok: false,
+        configured: false,
+        message:
+          "TPS/CTPS screening isn't connected yet — sign up at provero.io and set PROVERO_API_KEY. Nothing was screened.",
+      },
+      origin,
+    )
   }
 
   try {
     const body = (await req.json()) as ScreenRequest
     const contactIds = Array.isArray(body.contactIds) ? body.contactIds.slice(0, 500) : []
     if (contactIds.length === 0) {
-      return json(400, { error: "contactIds required" })
+      return json(400, { error: "contactIds required" }, origin)
     }
 
     const admin = createClient(supabaseUrl, serviceKey)
@@ -134,9 +164,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    return json(200, { ok: true, configured: true, screened, failed })
+    return json(200, { ok: true, configured: true, screened, failed }, origin)
   } catch (err) {
     console.error("screen-tps-ctps error:", err)
-    return json(500, { error: "Something went wrong." })
+    return json(500, { error: "Something went wrong." }, origin)
   }
 })
