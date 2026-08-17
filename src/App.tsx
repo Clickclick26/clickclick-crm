@@ -2687,6 +2687,125 @@ export default function App({
                         </button>
                       ))}
                     </div>
+
+                    {/* Was stranded inside the "About them" card on the right,
+                        leaving this whole card empty below the script box
+                        whenever it was short — moved here to actually use
+                        the space, not just match its background color. */}
+                    <h3 style={{ marginTop: 16 }}>AI tools</h3>
+                    <div className="deal-section" style={{ marginBottom: 10 }}>
+                      <button
+                        type="button"
+                        className="btn ghost"
+                        disabled={!contact.company.trim() || profileLooking}
+                        onClick={() => void runProfileLookup()}
+                      >
+                        {profileLooking ? 'Guessing…' : 'AI guess: owner & phone'}
+                      </button>
+                      <span
+                        className="help"
+                        style={{ display: 'block', fontSize: '0.76rem', marginTop: 2 }}
+                      >
+                        Not a live search — Gemini's memory, can be wrong or blank. Only
+                        fills boxes that are still empty.
+                      </span>
+                      {profileLookupErr && (
+                        <p className="muted" style={{ color: 'var(--pink)', marginBottom: 0 }}>
+                          {profileLookupErr}
+                        </p>
+                      )}
+                      {profileLookupResult && !profileLookupResult.configured && (
+                        <p className="muted" style={{ marginBottom: 0 }}>
+                          {profileLookupResult.message}
+                        </p>
+                      )}
+                      {profileLookupResult &&
+                        profileLookupResult.configured &&
+                        !profileLookupResult.found && (
+                          <p className="muted" style={{ marginBottom: 0 }}>
+                            Didn’t recognise this business — nothing to go on.
+                            {profileLookupResult.note ? ` ${profileLookupResult.note}` : ''}
+                          </p>
+                        )}
+                      {profileLookupResult &&
+                        profileLookupResult.configured &&
+                        profileLookupResult.found && (
+                          <div className="lookup-result">
+                            <p className="muted" style={{ marginTop: 0, marginBottom: 6 }}>
+                              Unverified AI guess, not searched — check before relying on it.
+                              Confidence: {profileLookupResult.confidence}
+                              {profileLookupResult.source
+                                ? ` · recalled from: ${profileLookupResult.source}`
+                                : ''}
+                            </p>
+                            <p style={{ margin: '0 0 4px' }}>
+                              {profileLookupResult.ownerName ?? '—'}
+                              {profileLookupResult.phone ? ` · ${profileLookupResult.phone}` : ''}
+                              {profileLookupResult.email ? ` · ${profileLookupResult.email}` : ''}
+                            </p>
+                            {profileLookupResult.note && (
+                              <p className="muted" style={{ marginTop: 0 }}>
+                                {profileLookupResult.note}
+                              </p>
+                            )}
+                            <div className="btn-row">
+                              <button
+                                type="button"
+                                className="btn primary"
+                                onClick={useProfileLookupResult}
+                              >
+                                Use this
+                              </button>
+                              <button
+                                type="button"
+                                className="btn ghost"
+                                onClick={() => setProfileLookupResult(null)}
+                              >
+                                Dismiss
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                    </div>
+
+                    <div className="deal-section">
+                      <p className="deal-label">Ask AI about this company</p>
+                      <div className="deal-fields" style={{ gridTemplateColumns: '2fr 1fr' }}>
+                        <label>
+                          Question
+                          <input
+                            value={companyQuestion}
+                            onChange={(e) => setCompanyQuestion(e.target.value)}
+                            placeholder="e.g. What do they sell? How big are they?"
+                            disabled={!contact.company.trim()}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') void runCompanyAsk()
+                            }}
+                          />
+                        </label>
+                        <button
+                          className="btn primary"
+                          style={{ alignSelf: 'end' }}
+                          disabled={!contact.company.trim() || !companyQuestion.trim() || asking}
+                          onClick={() => void runCompanyAsk()}
+                        >
+                          {asking ? 'Asking…' : 'Ask'}
+                        </button>
+                      </div>
+                      {askErr && (
+                        <p className="muted" style={{ color: 'var(--pink)', marginBottom: 0 }}>
+                          {askErr}
+                        </p>
+                      )}
+                      {companyAnswer && (
+                        <div className="lookup-result">
+                          <p className="muted" style={{ marginTop: 0, marginBottom: 6 }}>
+                            Gemini's memory, not searched — verify anything important.
+                          </p>
+                          <p style={{ margin: 0 }}>{companyAnswer}</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="card">
@@ -2756,125 +2875,6 @@ export default function App({
                               saveContactField(contact, { company: value })
                             }}
                           />
-                        </dd>
-                      </div>
-
-                      <div className="span-2">
-                        <dt>AI</dt>
-                        <dd>
-                          <div className="deal-section" style={{ marginBottom: 10 }}>
-                            <button
-                              type="button"
-                              className="btn ghost"
-                              disabled={!contact.company.trim() || profileLooking}
-                              onClick={() => void runProfileLookup()}
-                            >
-                              {profileLooking ? 'Guessing…' : 'AI guess: owner & phone'}
-                            </button>
-                            <span
-                              className="help"
-                              style={{ display: 'block', fontSize: '0.76rem', marginTop: 2 }}
-                            >
-                              Not a live search — Gemini's memory, can be wrong or blank. Only
-                              fills boxes that are still empty.
-                            </span>
-                            {profileLookupErr && (
-                              <p className="muted" style={{ color: 'var(--pink)', marginBottom: 0 }}>
-                                {profileLookupErr}
-                              </p>
-                            )}
-                            {profileLookupResult && !profileLookupResult.configured && (
-                              <p className="muted" style={{ marginBottom: 0 }}>
-                                {profileLookupResult.message}
-                              </p>
-                            )}
-                            {profileLookupResult &&
-                              profileLookupResult.configured &&
-                              !profileLookupResult.found && (
-                                <p className="muted" style={{ marginBottom: 0 }}>
-                                  Didn’t recognise this business — nothing to go on.
-                                  {profileLookupResult.note ? ` ${profileLookupResult.note}` : ''}
-                                </p>
-                              )}
-                            {profileLookupResult &&
-                              profileLookupResult.configured &&
-                              profileLookupResult.found && (
-                                <div className="lookup-result">
-                                  <p className="muted" style={{ marginTop: 0, marginBottom: 6 }}>
-                                    Unverified AI guess, not searched — check before relying on it.
-                                    Confidence: {profileLookupResult.confidence}
-                                    {profileLookupResult.source
-                                      ? ` · recalled from: ${profileLookupResult.source}`
-                                      : ''}
-                                  </p>
-                                  <p style={{ margin: '0 0 4px' }}>
-                                    {profileLookupResult.ownerName ?? '—'}
-                                    {profileLookupResult.phone ? ` · ${profileLookupResult.phone}` : ''}
-                                    {profileLookupResult.email ? ` · ${profileLookupResult.email}` : ''}
-                                  </p>
-                                  {profileLookupResult.note && (
-                                    <p className="muted" style={{ marginTop: 0 }}>
-                                      {profileLookupResult.note}
-                                    </p>
-                                  )}
-                                  <div className="btn-row">
-                                    <button
-                                      type="button"
-                                      className="btn primary"
-                                      onClick={useProfileLookupResult}
-                                    >
-                                      Use this
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="btn ghost"
-                                      onClick={() => setProfileLookupResult(null)}
-                                    >
-                                      Dismiss
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                          </div>
-
-                          <div className="deal-section">
-                            <p className="deal-label">Ask AI about this company</p>
-                            <div className="deal-fields" style={{ gridTemplateColumns: '2fr 1fr' }}>
-                              <label>
-                                Question
-                                <input
-                                  value={companyQuestion}
-                                  onChange={(e) => setCompanyQuestion(e.target.value)}
-                                  placeholder="e.g. What do they sell? How big are they?"
-                                  disabled={!contact.company.trim()}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') void runCompanyAsk()
-                                  }}
-                                />
-                              </label>
-                              <button
-                                className="btn primary"
-                                style={{ alignSelf: 'end' }}
-                                disabled={!contact.company.trim() || !companyQuestion.trim() || asking}
-                                onClick={() => void runCompanyAsk()}
-                              >
-                                {asking ? 'Asking…' : 'Ask'}
-                              </button>
-                            </div>
-                            {askErr && (
-                              <p className="muted" style={{ color: 'var(--pink)', marginBottom: 0 }}>
-                                {askErr}
-                              </p>
-                            )}
-                            {companyAnswer && (
-                              <div className="lookup-result">
-                                <p className="muted" style={{ marginTop: 0, marginBottom: 6 }}>
-                                  Gemini's memory, not searched — verify anything important.
-                                </p>
-                                <p style={{ margin: 0 }}>{companyAnswer}</p>
-                              </div>
-                            )}
-                          </div>
                         </dd>
                       </div>
 
