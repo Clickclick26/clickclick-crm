@@ -910,6 +910,16 @@ button {
   margin-top: 4px;
 }
 
+.lookup-result {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--surface-soft);
+  font-size: 0.8rem;
+  color: var(--ink);
+  font-weight: 400;
+}
+
 .new-contact-row {
   display: grid;
   grid-template-columns: 1fr 1fr;

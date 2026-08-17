@@ -16,6 +16,7 @@ import { listsForBrand, type CustomList } from '../../lib/contactLists'
 import { PERSON_ROLES, type ExtraPerson, type PersonRole } from '../../lib/people'
 import { ExtraPeopleFields } from './ExtraPeopleFields'
 import { firstHttpUrl } from '../../lib/linkedin'
+import { lookupContactInfo, type ContactLookupResult } from '../../lib/supabase/lookup'
 
 export type NewContactDraft = {
   name: string
@@ -67,8 +68,39 @@ export function NewContactForm({
     saved?.tags?.filter((t) => allowed.has(t)) ?? defaultTags.filter((t) => allowed.has(t)),
   )
   const [notes, setNotes] = useState(saved?.notes ?? '')
+  const [looking, setLooking] = useState(false)
+  const [lookupResult, setLookupResult] = useState<ContactLookupResult | null>(null)
+  const [lookupErr, setLookupErr] = useState('')
 
   const lists = listsForBrand(brandId, customLists)
+
+  async function runLookup() {
+    if (!company.trim() || looking) return
+    setLooking(true)
+    setLookupErr('')
+    setLookupResult(null)
+    try {
+      const result = await lookupContactInfo({
+        company: company.trim(),
+        locality: location.trim(),
+        brand: brandId,
+      })
+      setLookupResult(result)
+    } catch (err) {
+      console.error('AI lookup failed', err)
+      setLookupErr(err instanceof Error ? err.message : 'Lookup failed — try again.')
+    } finally {
+      setLooking(false)
+    }
+  }
+
+  function useLookupResult() {
+    if (!lookupResult || !lookupResult.configured) return
+    if (!name.trim() && lookupResult.ownerName) setName(lookupResult.ownerName)
+    if (!phone.trim() && lookupResult.phone) setPhone(lookupResult.phone)
+    if (!email.trim() && lookupResult.email) setEmail(lookupResult.email)
+    setLookupResult(null)
+  }
 
   const liveDraft: NewContactDraft = {
     name,
@@ -179,10 +211,62 @@ export function NewContactForm({
         <input
           className="followup-date"
           value={company}
-          onChange={(e) => setCompany(e.target.value)}
+          onChange={(e) => {
+            setCompany(e.target.value)
+            setLookupResult(null)
+          }}
           placeholder="Optional"
         />
       </label>
+
+      <div className="new-contact-field">
+        <button
+          type="button"
+          className="btn ghost"
+          disabled={!company.trim() || looking}
+          onClick={() => void runLookup()}
+        >
+          {looking ? 'Looking…' : 'Look up owner & phone with AI'}
+        </button>
+        {lookupErr && (
+          <p className="muted" style={{ color: 'var(--pink)', marginBottom: 0 }}>
+            {lookupErr}
+          </p>
+        )}
+        {lookupResult && !lookupResult.configured && (
+          <p className="muted" style={{ marginBottom: 0 }}>{lookupResult.message}</p>
+        )}
+        {lookupResult && lookupResult.configured && !lookupResult.found && (
+          <p className="muted" style={{ marginBottom: 0 }}>
+            Couldn’t confidently find them.{lookupResult.note ? ` ${lookupResult.note}` : ''}
+          </p>
+        )}
+        {lookupResult && lookupResult.configured && lookupResult.found && (
+          <div className="lookup-result">
+            <p className="muted" style={{ marginTop: 0, marginBottom: 6 }}>
+              AI found this — not verified, check before saving. Confidence: {lookupResult.confidence}
+              {lookupResult.source ? ` · ${lookupResult.source}` : ''}
+            </p>
+            <p style={{ margin: '0 0 4px' }}>
+              {lookupResult.ownerName ?? '—'}
+              {lookupResult.phone ? ` · ${lookupResult.phone}` : ''}
+              {lookupResult.email ? ` · ${lookupResult.email}` : ''}
+            </p>
+            {lookupResult.note && (
+              <p className="muted" style={{ marginTop: 0 }}>{lookupResult.note}</p>
+            )}
+            <div className="btn-row">
+              <button type="button" className="btn primary" onClick={useLookupResult}>
+                Use this
+              </button>
+              <button type="button" className="btn ghost" onClick={() => setLookupResult(null)}>
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="new-contact-row">
         <label className="new-contact-field">
           Location
