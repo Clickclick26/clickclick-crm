@@ -16,9 +16,9 @@ export type ContactLookupResult =
 
 /**
  * AI lookup for a business's likely owner/contact name and phone number
- * (Gemini + Google Search grounding, server-side). Review-only — this
- * never writes to the database; the caller decides whether to use what
- * comes back.
+ * (Gemini, server-side — no live search, see the edge function's header
+ * comment for why). Review-only — this never writes to the database; the
+ * caller decides whether to use what comes back.
  */
 export async function lookupContactInfo(opts: {
   company: string
@@ -30,4 +30,27 @@ export async function lookupContactInfo(opts: {
   })
   if (error) throw error
   return data as ContactLookupResult
+}
+
+export type CompanyAskResult =
+  | { configured: false; message: string }
+  | { configured: true; answer: string }
+
+/** Free-form "ask AI about this company" — same no-search, no-inventing deal as lookupContactInfo. */
+export async function askAboutCompany(opts: {
+  company: string
+  locality?: string
+  brand: BrandId
+  question: string
+}): Promise<CompanyAskResult> {
+  const { data, error } = await supabase.functions.invoke('ask-about-company', {
+    body: {
+      company: opts.company,
+      locality: opts.locality,
+      brand: opts.brand,
+      question: opts.question,
+    },
+  })
+  if (error) throw error
+  return data as CompanyAskResult
 }
