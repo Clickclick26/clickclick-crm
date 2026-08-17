@@ -226,8 +226,11 @@ export function NewContactForm({
           disabled={!company.trim() || looking}
           onClick={() => void runLookup()}
         >
-          {looking ? 'Looking…' : 'Look up owner & phone with AI'}
+          {looking ? 'Guessing…' : 'AI guess: owner & phone'}
         </button>
+        <span className="help" style={{ display: 'block', fontSize: '0.76rem', marginTop: 2 }}>
+          Not a live search — it's Gemini's memory, so it can be wrong or blank. Always double-check.
+        </span>
         {lookupErr && (
           <p className="muted" style={{ color: 'var(--pink)', marginBottom: 0 }}>
             {lookupErr}
@@ -238,14 +241,16 @@ export function NewContactForm({
         )}
         {lookupResult && lookupResult.configured && !lookupResult.found && (
           <p className="muted" style={{ marginBottom: 0 }}>
-            Couldn’t confidently find them.{lookupResult.note ? ` ${lookupResult.note}` : ''}
+            Didn’t recognise this business — nothing to go on.
+            {lookupResult.note ? ` ${lookupResult.note}` : ''}
           </p>
         )}
         {lookupResult && lookupResult.configured && lookupResult.found && (
           <div className="lookup-result">
             <p className="muted" style={{ marginTop: 0, marginBottom: 6 }}>
-              AI found this — not verified, check before saving. Confidence: {lookupResult.confidence}
-              {lookupResult.source ? ` · ${lookupResult.source}` : ''}
+              Unverified AI guess, not searched — check before saving. Confidence:{' '}
+              {lookupResult.confidence}
+              {lookupResult.source ? ` · recalled from: ${lookupResult.source}` : ''}
             </p>
             <p style={{ margin: '0 0 4px' }}>
               {lookupResult.ownerName ?? '—'}

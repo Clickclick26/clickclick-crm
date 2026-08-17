@@ -1,12 +1,20 @@
 // Looks up a small business's likely owner/contact name and phone number via
-// Gemini + Google Search grounding, for the "Look up with AI" button on the
-// New Contact form. Review-only: this never writes to the database itself —
-// the CRM shows what it found and the agent decides whether to save it.
+// Gemini, for the "Look up with AI" button on the New Contact form.
+// Review-only: this never writes to the database itself — the CRM shows
+// what it found and the agent decides whether to save it.
 //
-// Grounding (the google_search tool) is required, not optional. Without it,
-// Gemini will confidently invent plausible-sounding names and phone numbers
-// for small local businesses instead of saying it doesn't know — which is
-// exactly the wrong failure mode for a tool that feeds a real dialer.
+// No Google Search grounding — Kathryn's account is on the free tier, and
+// grounding is billed-account-only on Google's side (confirmed directly:
+// plain generateContent calls succeed, the same call with the google_search
+// tool 429s immediately, every time, regardless of volume). Deliberate
+// tradeoff, decided with Kathryn: without grounding this is Gemini's
+// training-data memory, not a live lookup, so it WILL be wrong or blank for
+// businesses it doesn't already know about, especially small/local ones.
+// The prompt below leans hard on "leave it null rather than guess", and the
+// CRM UI labels every result as an unverified AI guess. If billing ever gets
+// enabled on that Google Cloud project, add back `tools: [{ google_search: {} }]`
+// to the request body and this becomes a real lookup instead of a memory
+// dump — worth revisiting then.
 //
 // Secret required: GEMINI_API_KEY — from https://aistudio.google.com/apikey
 //   supabase secrets set GEMINI_API_KEY=your_key_here
@@ -90,14 +98,26 @@ Deno.serve(async (req) => {
     const brand = body.brand === "clocal" ? "CLocal" : "ClickClick"
 
     const where = locality ? ` in ${locality}` : ""
-    const prompt = `Find the real, currently-correct owner or main contact name and public phone number for the small business "${company}"${where}. This is for a UK sales team (${brand}) about to call them — accuracy matters, a wrong number means calling the wrong person.
+    const prompt = `You do NOT have live internet or search access for this — you only have what you already
+learned during training, which may be outdated, wrong, or nonexistent for a small local business
+like this one. That is completely fine and expected most of the time.
 
-Use search to confirm current info; do not guess. If you can't confirm a fact, leave it null rather than inventing one.
+The business: "${company}"${where}. A UK sales team (${brand}) is about to call whatever number
+you give them — a wrong number means calling a real stranger by mistake.
+
+Your #1 rule: it is always better to say you don't know than to guess. Never invent a
+plausible-sounding name, phone number, or email just to fill in a field. If you don't
+specifically, confidently recall this exact business, set "found" to false and leave every
+field null — do not make up a generic-sounding placeholder. Only answer if you actually
+recognise this specific business by name from training and recall real specifics about it —
+not a guess based on what businesses like this "usually" look like.
 
 Reply with ONLY a single JSON object, no other text, no markdown fences, matching exactly this shape:
 {"found": boolean, "ownerName": string|null, "phone": string|null, "email": string|null, "confidence": "high"|"medium"|"low", "source": string|null, "note": string|null}
 
-"source" is the website or listing you found this on, if any. "note" is one short sentence if something is uncertain or ambiguous, otherwise null.`
+"confidence" should be "low" unless you are quite sure. "source" is where you believe you learned
+this from, if you recall one, otherwise null. "note" is one short sentence flagging any doubt —
+e.g. "this may be outdated" — otherwise null.`
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
@@ -106,7 +126,6 @@ Reply with ONLY a single JSON object, no other text, no markdown fences, matchin
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          tools: [{ google_search: {} }],
           generationConfig: { temperature: 0 },
         }),
       },
