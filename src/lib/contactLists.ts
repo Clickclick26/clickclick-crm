@@ -11,6 +11,13 @@ export const BUILTIN_LISTS: Record<BrandId, ListOption[]> = {
   ],
   clocal: [
     { id: 'waitlist', label: 'Waitlist' },
+    // Role sub-lists: waitlist-ingest tags every signup with their role(s)
+    // lowercase ('consumer'/'creator'/'business') — a contact can carry more
+    // than one, so picking two roles on the form puts them on both lists
+    // automatically. "Waitlist" above still shows everyone regardless of role.
+    { id: 'consumer', label: 'Consumer waitlist' },
+    { id: 'creator', label: 'Creator waitlist' },
+    { id: 'business', label: 'Business waitlist' },
     { id: 'newsletter', label: 'Newsletter' },
     { id: 'cold-outreach', label: 'Cold outreach' },
   ],
@@ -24,6 +31,9 @@ const RESERVED = new Set([
   'replied',
   'warmed',
   'waitlist',
+  'consumer',
+  'creator',
+  'business',
   'newsletter',
   'cold-outreach',
   'clocal',
