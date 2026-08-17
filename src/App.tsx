@@ -287,6 +287,15 @@ export default function App({
   const [agents, setAgents] = useState<Agent[]>([currentAgent])
   const savedPlace = loadPlace()
   const [nav, setNav] = useState<NavId>(isNavId(savedPlace?.nav) ? savedPlace.nav : 'recents')
+
+  // Settings/Admin is restricted to admins — the gear is already hidden for
+  // everyone else, but a non-admin can still land on nav:'settings' via
+  // restored session state (e.g. shared browser, was admin last session).
+  // Bounce them out rather than rendering scripts/contracts/coaching notes
+  // that aren't theirs to see or edit.
+  useEffect(() => {
+    if (nav === 'settings' && currentAgent.role !== 'admin') setNav('recents')
+  }, [nav, currentAgent.role])
   const [filter, setFilter] = useState<'all' | 'missed'>('all')
   // ClickClick tabs are cold-call statuses; CLocal tabs are list membership
   // (a contact can be on more than one CLocal list at once — e.g. waitlist
@@ -1753,14 +1762,16 @@ export default function App({
             )
           })}
           <div className="sidebar-spacer" />
-          <button
-            className={`nav-btn accent ${nav === 'settings' ? 'active' : ''}`}
-            title="Settings"
-            aria-label="Settings"
-            onClick={() => setNav('settings')}
-          >
-            <Settings size={20} strokeWidth={1.8} />
-          </button>
+          {currentAgent.role === 'admin' && (
+            <button
+              className={`nav-btn accent ${nav === 'settings' ? 'active' : ''}`}
+              title="Settings"
+              aria-label="Settings"
+              onClick={() => setNav('settings')}
+            >
+              <Settings size={20} strokeWidth={1.8} />
+            </button>
+          )}
         </aside>
 
         {showPanel && (
@@ -1954,7 +1965,7 @@ export default function App({
 
           {nav === 'reports' && <ReportsScreen agents={agents} />}
 
-          {nav === 'settings' && (
+          {nav === 'settings' && currentAgent.role === 'admin' && (
             <div className="lists-view admin-settings">
               <div className="main-head" style={{ padding: '0 0 12px', border: 'none' }}>
                 <div>

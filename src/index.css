@@ -926,12 +926,27 @@ button {
   gap: 12px;
 }
 
+.person-block {
+  margin-bottom: 8px;
+}
+
 .person-row {
   display: grid;
   grid-template-columns: minmax(110px, 0.7fr) 1fr auto;
   gap: 8px;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+}
+
+.person-block .person-row {
+  margin-bottom: 4px;
+}
+
+.person-linkedin-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
 }
 
 .list-picks {

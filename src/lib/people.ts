@@ -11,6 +11,7 @@ export type PersonRole = (typeof PERSON_ROLES)[number]['id']
 export type ExtraPerson = {
   name: string
   role: PersonRole
+  linkedinUrl?: string
 }
 
 const START = '---PEOPLE---'
@@ -47,6 +48,7 @@ export function parsePeople(notes: string): PeopleBlock {
             .map((p) => ({
               name: p.name.trim(),
               role: p.role && isRole(p.role) ? p.role : 'other',
+              linkedinUrl: typeof p.linkedinUrl === 'string' ? p.linkedinUrl.trim() : '',
             }))
         : [],
     }
@@ -72,7 +74,11 @@ export function upsertPeopleInNotes(
 ): string {
   const base = notesWithoutPeople(notes).trim()
   const clean = extra
-    .map((p) => ({ name: p.name.trim(), role: isRole(p.role) ? p.role : 'other' }))
+    .map((p) => ({
+      name: p.name.trim(),
+      role: isRole(p.role) ? p.role : 'other',
+      linkedinUrl: p.linkedinUrl?.trim() || undefined,
+    }))
     .filter((p) => p.name)
   if (role === 'main' && clean.length === 0) return base
   const block = `${START}\n${JSON.stringify({ role, extra: clean })}\n${END}`
