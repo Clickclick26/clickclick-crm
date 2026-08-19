@@ -70,9 +70,12 @@ function normalizeUkNumber(raw: string): string | null {
   return null
 }
 
-async function checkOneNumber(phone: string, apiKey: string): Promise<TpsStatus> {
+async function checkOneNumber(
+  phone: string,
+  apiKey: string,
+): Promise<{ status: TpsStatus; reason?: string }> {
   const normalized = normalizeUkNumber(phone)
-  if (!normalized) return "check_failed"
+  if (!normalized) return { status: "check_failed", reason: "couldn't parse phone format" }
 
   try {
     const res = await fetch("https://api.provero.io/api/validate/phone-tps", {
@@ -80,20 +83,26 @@ async function checkOneNumber(phone: string, apiKey: string): Promise<TpsStatus>
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
+        Accept: "application/json",
       },
       body: JSON.stringify({ phone: normalized }),
     })
 
     if (!res.ok) {
-      console.error("Provero TPS check failed:", res.status, await res.text())
-      return "check_failed"
+      const text = await res.text()
+      console.error("Provero TPS check failed:", res.status, text)
+      // Provero rejects fictional/reserved-range numbers (e.g. the 07700 900xxx
+      // drama block) with 422 — worth a clearer reason than a generic failure.
+      const reason =
+        res.status === 422 ? "Provero says this isn't a real phone number" : "Provero check failed"
+      return { status: "check_failed", reason }
     }
 
     const data = (await res.json()) as { onTps?: boolean }
-    return data.onTps === true ? "tps_registered" : "clear"
+    return { status: data.onTps === true ? "tps_registered" : "clear" }
   } catch (err) {
     console.error("Provero TPS check error:", err)
-    return "check_failed"
+    return { status: "check_failed", reason: "network error reaching Provero" }
   }
 }
 
@@ -138,19 +147,33 @@ Deno.serve(async (req) => {
 
     const { data: contacts, error: fetchErr } = await admin
       .from("contacts")
-      .select("id, phone")
+      .select("id, name, phone")
       .in("id", contactIds)
 
     if (fetchErr) throw fetchErr
 
     let screened = 0
     let failed = 0
+    let skipped = 0
+    // Bounded so a big "screen all" can't blow up the response payload —
+    // still gives Kathryn actual names to look at instead of a bare count.
+    const issues: { name: string; reason: string }[] = []
+    const MAX_ISSUES = 25
 
     // Sequential, not parallel — keeps this within Provero's per-second rate
     // limits without needing to know their exact ceiling, and a single-agent
     // setup has no volume pressure to justify the extra complexity yet.
     for (const c of contacts ?? []) {
-      const status = c.phone ? await checkOneNumber(c.phone, apiKey) : "check_failed"
+      if (!c.phone) {
+        // Nothing to screen — leave tps_status as 'unscreened' rather than
+        // writing 'check_failed', which would falsely imply a check ran and
+        // came back bad. This was previously counted as a failure, which is
+        // why "screen all" on a phone-less waitlist import looked like it
+        // was failing on every single contact.
+        skipped++
+        continue
+      }
+      const { status, reason } = await checkOneNumber(c.phone, apiKey)
       const { error: updErr } = await admin
         .from("contacts")
         .update({ tps_status: status, tps_screened_at: new Date().toISOString() })
@@ -158,13 +181,21 @@ Deno.serve(async (req) => {
       if (updErr) {
         console.error("Failed to save TPS status for", c.id, updErr.message)
         failed++
+        if (issues.length < MAX_ISSUES) {
+          issues.push({ name: c.name || c.phone, reason: "couldn't save the result" })
+        }
       } else {
         screened++
-        if (status === "check_failed") failed++
+        if (status === "check_failed") {
+          failed++
+          if (issues.length < MAX_ISSUES) {
+            issues.push({ name: c.name || c.phone, reason: reason ?? "check failed" })
+          }
+        }
       }
     }
 
-    return json(200, { ok: true, configured: true, screened, failed }, origin)
+    return json(200, { ok: true, configured: true, screened, failed, skipped, issues }, origin)
   } catch (err) {
     console.error("screen-tps-ctps error:", err)
     return json(500, { error: "Something went wrong." }, origin)

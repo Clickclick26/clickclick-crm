@@ -95,6 +95,7 @@ import {
   isFollowUpDue,
   mergeContacts,
   screenContactsForTps,
+  type TpsScreenResult,
   unarchiveContact,
   updateContactCategory,
   updateContactDetails,
@@ -202,6 +203,20 @@ function formatDuration(sec: number) {
   const m = Math.floor(sec / 60)
   const s = sec % 60
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+/** "No phone" isn't a failure — it's nothing to screen. Keep that out of the
+ * failed count so "N failed" only ever means a real problem, and name names
+ * instead of leaving a bare count with nowhere to look. */
+function describeTpsResult(result: TpsScreenResult): string {
+  const parts = [`${result.screened - result.failed} clear/registered`]
+  if (result.failed > 0) {
+    const names = result.issues.slice(0, 3).map((i) => i.name)
+    const extra = result.issues.length > names.length ? ` +${result.issues.length - names.length} more` : ''
+    parts.push(`${result.failed} failed (${names.join(', ')}${extra})`)
+  }
+  if (result.skipped > 0) parts.push(`${result.skipped} skipped — no phone number`)
+  return parts.join(' · ')
 }
 
 /** Big obvious deal checklist states from the mock deal status. */
@@ -928,9 +943,7 @@ export default function App({
         if (!result.configured) {
           showToast(result.message ?? 'TPS/CTPS screening not connected yet — see Settings.')
         } else {
-          showToast(
-            `TPS/CTPS: ${result.screened - result.failed} clear/registered, ${result.failed} failed`,
-          )
+          showToast(`TPS/CTPS: ${describeTpsResult(result)}`)
         }
         setContacts(await fetchContacts(agents))
       } catch (err) {
@@ -959,9 +972,7 @@ export default function App({
       if (!result.configured) {
         showToast(result.message ?? 'TPS/CTPS screening not connected yet — see Settings.')
       } else {
-        showToast(
-          `Screened ${result.screened}: ${result.screened - result.failed} checked ok, ${result.failed} failed`,
-        )
+        showToast(`Screened ${result.screened}: ${describeTpsResult(result)}`)
       }
       setContacts(await fetchContacts(agents))
     } catch (err) {
@@ -1211,7 +1222,9 @@ export default function App({
         return
       }
       setContacts(await fetchContacts(agents))
-      showToast(result.failed > 0 ? 'Screening failed — try again.' : 'Re-checked.')
+      if (result.skipped > 0) showToast('No phone number on file — nothing to screen.')
+      else if (result.failed > 0) showToast(`Screening failed — ${result.issues[0]?.reason ?? 'try again'}.`)
+      else showToast('Re-checked.')
     } catch (err) {
       console.error('Re-check failed', err)
       showToast('Re-check failed. Try again.')

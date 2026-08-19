@@ -204,21 +204,40 @@ export async function updateContactCategory(
   if (error) throw error
 }
 
+export type TpsScreenResult = {
+  configured: boolean
+  screened: number
+  failed: number
+  /** Had no phone number at all — nothing to screen, not a failure. */
+  skipped: number
+  /** Up to 25 real failures with a name + reason, so "N failed" is never a dead end. */
+  issues: { name: string; reason: string }[]
+  message?: string
+}
+
 /**
  * Screens the given contacts against TPS/CTPS via the screen-tps-ctps edge
  * function and writes tps_status back onto each row. Returns whether the
  * screening provider is actually configured yet (PROVERO_API_KEY) — false
  * means nothing was screened and callers should say so, not pretend it worked.
  */
-export async function screenContactsForTps(
-  contactIds: string[],
-): Promise<{ configured: boolean; screened: number; failed: number; message?: string }> {
-  if (contactIds.length === 0) return { configured: true, screened: 0, failed: 0 }
+export async function screenContactsForTps(contactIds: string[]): Promise<TpsScreenResult> {
+  if (contactIds.length === 0) {
+    return { configured: true, screened: 0, failed: 0, skipped: 0, issues: [] }
+  }
   const { data, error } = await supabase.functions.invoke('screen-tps-ctps', {
     body: { contactIds },
   })
   if (error) throw error
-  return data as { configured: boolean; screened: number; failed: number; message?: string }
+  const result = data as Partial<TpsScreenResult>
+  return {
+    configured: result.configured ?? false,
+    screened: result.screened ?? 0,
+    failed: result.failed ?? 0,
+    skipped: result.skipped ?? 0,
+    issues: result.issues ?? [],
+    message: result.message,
+  }
 }
 
 export async function updateContactNotes(id: string, notes: string) {
