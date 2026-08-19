@@ -66,7 +66,19 @@ button {
   padding: 16px 18px 18px;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 12px;
+}
+
+/* On a big desktop monitor, the sidebar/list/main cluster keeps its
+   designed proportions and caps out instead of stretching into a huge,
+   sparse-looking spread — extra room just shows the cream background
+   around it, same as most desktop apps. Bubble cards, colours, radii all
+   unchanged; this only bounds how wide the whole cluster gets. */
+.topbar,
+.shell {
+  width: 100%;
+  max-width: 1600px;
 }
 
 .topbar {
