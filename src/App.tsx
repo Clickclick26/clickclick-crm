@@ -890,18 +890,25 @@ export default function App({
     })
   }, [filter, query])
 
+  // A non-empty search box searches EVERY brand and list — the brand /
+  // list / category filters only shape the view when you're browsing, not
+  // when you're looking for a specific person. Searching inside the current
+  // filter used to hide known contacts behind the wrong tab.
+  const isSearchingContacts = query.trim().length > 0
   const filteredContacts = useMemo(() => {
-    const q = query.toLowerCase()
+    const q = query.trim().toLowerCase()
     return contacts.filter((c) => {
-      if (c.brandId !== contactsBrand) return false
-      if (contactFilter === 'due') {
-        if (!isFollowUpDue(c.nextCallback)) return false
-      } else if (contactFilter !== 'all' && !c.tags.includes(contactFilter)) {
-        return false
+      if (!q) {
+        if (c.brandId !== contactsBrand) return false
+        if (contactFilter === 'due') {
+          if (!isFollowUpDue(c.nextCallback)) return false
+        } else if (contactFilter !== 'all' && !c.tags.includes(contactFilter)) {
+          return false
+        }
+        if (contactsBrand === 'clocal' && categoryFilter !== 'all' && c.industry !== categoryFilter)
+          return false
+        return true
       }
-      if (contactsBrand === 'clocal' && categoryFilter !== 'all' && c.industry !== categoryFilter)
-        return false
-      if (!q) return true
       const hay =
         `${c.name} ${c.company} ${c.phone} ${c.email} ${c.tags.join(' ')} ${c.industry ?? ''} ${c.locality} ${c.linkedinUrl} ${c.extraPeople.map((p) => p.name).join(' ')}`.toLowerCase()
       return hay.includes(q)
@@ -1434,6 +1441,12 @@ export default function App({
   function selectContact(person: Contact) {
     flushPendingNotes()
     setComposingNew(false)
+    // Opening a cross-brand search result switches the brand tab to match,
+    // so the list you return to actually contains the person you just opened.
+    if (person.brandId !== contactsBrand) {
+      setContactsBrand(person.brandId)
+      setCategoryFilter('all')
+    }
     setSelectedContactId(person.id)
     setNotes(stripMetaNotes(person.notes))
     setEmailBody(
@@ -1846,6 +1859,12 @@ export default function App({
               />
             </div>
             <div className="list">
+              {nav === 'contacts' && isSearchingContacts && (
+                <div className="list-search-scope">
+                  Searching all brands · {filteredContacts.length}{' '}
+                  {filteredContacts.length === 1 ? 'result' : 'results'}
+                </div>
+              )}
               {nav === 'contacts'
                 ? filteredContacts.map((person) => (
                     <div
@@ -1860,6 +1879,12 @@ export default function App({
                         <div>
                           <div className="call-phone">{person.name}</div>
                           <div className="call-meta">
+                            {isSearchingContacts && (
+                              <span className="row-brand-chip">
+                                {BRANDS.find((b) => b.id === person.brandId)?.label ??
+                                  person.brandId}
+                              </span>
+                            )}
                             {person.company
                               ? `${person.company} · `
                               : ''}
@@ -3756,7 +3781,7 @@ export default function App({
       {payConfetti && <PayConfettiBurst />}
 
       {toast && (
-        <div className="toast">
+        <div className="toast" role="status" aria-live="polite">
           {toast.message}
           {toast.action && (
             <button

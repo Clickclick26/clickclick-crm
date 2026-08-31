@@ -6,6 +6,14 @@
   --ink: #1a1a1a;
   --mid: #6b6b6b;
   --light: #9a9a9a;
+  /* Darker siblings of the faint tokens, used ONLY where the colour is
+     small text on white and --light / --turquoise-deep / --pink fail WCAG
+     contrast. Every fill, dot, chip background, icon and border keeps the
+     original token — the brand colours are unchanged. */
+  --text-quiet: #6f6f6f;
+  --turquoise-text: #00707e;
+  --pink-text: #c21e68;
+  --focus-ring: #0097a7;
   --line: transparent;
   --turquoise: #00bcd4;
   --turquoise-deep: #0097a7;
@@ -59,6 +67,38 @@ button {
   cursor: pointer;
   border: none;
   background: none;
+}
+
+/* Keyboard focus — visible everywhere (mouse clicks stay ring-free via
+   :focus-visible). The app's soft blue glow was ~1.15:1 and effectively
+   invisible; this is a real 3:1+ outline in the same colour family. Plain
+   selectors (not :where) so this beats the various `outline: none` field
+   resets on their own specificity. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+.sidebar button:focus-visible,
+.sidebar a:focus-visible {
+  outline-color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 .app {
@@ -379,7 +419,16 @@ button {
   padding: 0 12px 8px;
   overflow: auto;
   flex: 0 1 auto;
-  max-height: 42%;
+  /* Was a hard 42% of the panel — it starved the contact list to ~5 rows
+     on a laptop. Cap it low and let it scroll internally so the list, the
+     thing you work all day, gets the room. */
+  max-height: clamp(84px, 22vh, 200px);
+}
+
+@media (min-height: 1000px) {
+  .contact-views {
+    max-height: 26vh;
+  }
 }
 
 .contact-views-group {
@@ -392,7 +441,7 @@ button {
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--light);
+  color: var(--text-quiet);
 }
 
 .view-row {
@@ -422,11 +471,11 @@ button {
 
 .view-row span {
   font-size: 0.7rem;
-  color: var(--pink);
+  color: var(--pink-text);
 }
 
 .view-row-due {
-  color: var(--pink);
+  color: var(--pink-text);
 }
 
 .view-add {
@@ -435,7 +484,8 @@ button {
   gap: 4px;
   margin: 2px 8px 0;
   padding: 4px 0;
-  color: var(--turquoise-deep);
+  min-height: 24px;
+  color: var(--turquoise-text);
   font-size: 0.72rem;
   font-weight: 600;
 }
@@ -510,7 +560,7 @@ button {
 .followup-date:focus {
   outline: none;
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(0, 188, 212, 0.15);
+  box-shadow: 0 0 0 3px rgba(0, 151, 167, 0.5);
 }
 
 .tabs {
@@ -568,7 +618,7 @@ button {
 
 .search:focus {
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(0, 188, 212, 0.15);
+  box-shadow: 0 0 0 3px rgba(0, 151, 167, 0.5);
 }
 
 .search-wrap svg {
@@ -587,6 +637,29 @@ button {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/* Shown above the results while the search box has text — makes it clear
+   the list is no longer scoped to the current brand/filter tab. */
+.list-search-scope {
+  padding: 4px 12px 6px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-quiet);
+}
+
+/* Per-row brand tag, only while searching across brands. */
+.row-brand-chip {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(0, 188, 212, 0.12);
+  color: var(--turquoise-text);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  vertical-align: 1px;
 }
 
 .call-row,
@@ -656,13 +729,13 @@ button {
 .call-phone {
   font-weight: 600;
   font-size: 0.86rem;
-  color: var(--turquoise-deep);
+  color: var(--turquoise-text);
 }
 
 .call-meta,
 .call-when {
   font-size: 0.7rem;
-  color: var(--light);
+  color: var(--text-quiet);
 }
 
 .call-status {
@@ -672,7 +745,7 @@ button {
 }
 
 .call-status.missed {
-  color: #e83e8c;
+  color: var(--pink-text);
   font-weight: 600;
 }
 
@@ -993,9 +1066,12 @@ button {
 .link-btn {
   font-size: 0.7rem;
   font-weight: 600;
-  color: var(--turquoise-deep);
+  color: var(--turquoise-text);
   text-decoration: underline;
-  padding: 0;
+  padding: 4px 0;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
 }
 .link-btn:disabled {
   opacity: 0.5;
@@ -1050,7 +1126,7 @@ button {
 }
 
 .notes-box:focus {
-  box-shadow: 0 0 0 3px rgba(0, 188, 212, 0.15);
+  box-shadow: 0 0 0 3px rgba(0, 151, 167, 0.5);
   background: #fff;
 }
 
@@ -1182,7 +1258,7 @@ button {
 .email-form input:focus,
 .email-form textarea:focus {
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(0, 188, 212, 0.15);
+  box-shadow: 0 0 0 3px rgba(0, 151, 167, 0.5);
 }
 
 .email-form textarea {
@@ -1393,7 +1469,7 @@ button {
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-  color: var(--light);
+  color: var(--text-quiet);
 }
 
 .deal-hint {
@@ -1490,7 +1566,7 @@ button {
 
 .deal-fields input:focus {
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(0, 188, 212, 0.15);
+  box-shadow: 0 0 0 3px rgba(0, 151, 167, 0.5);
 }
 
 .deal-notes {
@@ -1801,9 +1877,12 @@ button {
   font-size: 0.62rem;
   font-weight: 600;
   padding: 4px 7px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
   border-radius: 999px;
   background: rgba(20, 20, 20, 0.04);
-  color: var(--light);
+  color: var(--text-quiet);
 }
 
 .mini-stage.active {
@@ -1816,7 +1895,7 @@ button {
   padding: 18px 8px;
   text-align: center;
   font-size: 0.76rem;
-  color: var(--light);
+  color: var(--text-quiet);
 }
 
 .pipeline-inline {
@@ -1909,6 +1988,8 @@ button {
   cursor: pointer;
   text-decoration: underline;
   flex-shrink: 0;
+  min-height: 24px;
+  padding: 0 2px;
 }
 
 .lists-view {
@@ -1941,7 +2022,7 @@ button {
 
 .stat .label {
   font-size: 0.7rem;
-  color: var(--light);
+  color: var(--text-quiet);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -1982,7 +2063,7 @@ button {
 }
 
 .dialer-list-item span:last-child {
-  color: var(--light);
+  color: var(--text-quiet);
   font-weight: 500;
   margin-left: auto;
   font-size: 0.78rem;
@@ -1990,14 +2071,14 @@ button {
 
 .create-list {
   margin-top: 8px;
-  color: var(--turquoise-deep);
+  color: var(--turquoise-text);
   font-weight: 600;
   font-size: 0.84rem;
   padding: 10px 8px;
 }
 
 .muted {
-  color: var(--light);
+  color: var(--text-quiet);
   font-size: 0.8rem;
 }
 
@@ -2050,7 +2131,7 @@ button {
 
 .feedback-chip span {
   font-size: 0.7rem;
-  color: var(--light);
+  color: var(--text-quiet);
 }
 
 .feedback-chip p {
@@ -2063,6 +2144,58 @@ button {
 .coaching-file-list {
   display: grid;
   gap: 10px;
+}
+
+/* Desktop (laptop and up): the app was laid out phone-first inside a
+   desktop shell. These rules only tighten density and reclaim wasted
+   width above 1100px — bubble geometry, colours, radii unchanged, and
+   nothing here touches the tablet/phone layout below. */
+@media (min-width: 1101px) {
+  /* Denser contact list — ~64px rows down to ~46px, so a laptop shows
+     far more contacts. Still well above the 24px target min. */
+  .list {
+    gap: 2px;
+    padding: 2px 10px 12px;
+  }
+  .list-row-contact {
+    padding: 1px;
+  }
+  .list-row-select {
+    padding: 4px 8px;
+  }
+  .list-row-select .call-phone {
+    line-height: 1.25;
+  }
+  .list-row-select .call-meta {
+    line-height: 1.2;
+  }
+
+  /* The delete icon stops shouting — hidden until you hover or keyboard
+     into the row, so 200 trash cans aren't on screen at once. */
+  .list-row-delete {
+    opacity: 0;
+    transition: opacity 0.12s ease;
+  }
+  .list-row-contact:hover .list-row-delete,
+  .list-row-contact:focus-within .list-row-delete {
+    opacity: 1;
+  }
+
+  /* Screens that rendered a narrow strip in a wide pane now use the width. */
+  .dialer-list {
+    max-width: none;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  }
+  .reports-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+}
+
+@media (hover: none) and (min-width: 1101px) {
+  /* Touch laptop / 2-in-1 — no hover, so keep the delete icon visible. */
+  .list-row-delete {
+    opacity: 1;
+  }
 }
 
 @media (max-width: 1100px) {
@@ -2154,7 +2287,7 @@ button {
 }
 
 .auth-error {
-  color: var(--pink);
+  color: var(--pink-text);
   font-size: 0.76rem;
   font-weight: 500;
   text-align: left;
