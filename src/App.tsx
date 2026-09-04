@@ -1574,10 +1574,20 @@ export default function App({
   }
 
   function sendLarkEmail() {
-    const attachmentNote = emailAttachments.length
-      ? ` with ${emailAttachments.length} attachment${emailAttachments.length > 1 ? 's' : ''}`
-      : ''
-    showToast(`Email queued via Lark Mail API${attachmentNote} (connect keys later).`)
+    if (!contact.email) {
+      showToast('No email on file for this contact — add one first.')
+      return
+    }
+    // Same trick as the video invite: open the agent's own mail app, pre-filled,
+    // they hit Send. mailto: can't carry file attachments (no browser lets a page
+    // stage those automatically for security reasons), so just remind the agent
+    // to drop them in by hand if any are staged.
+    window.location.href = `mailto:${contact.email}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`
+    showToast(
+      emailAttachments.length
+        ? `Opening your email app — attach ${emailAttachments.length} file${emailAttachments.length > 1 ? 's' : ''} manually, mail links can't do that part.`
+        : 'Opening your email app…',
+    )
     setEmailAttachments([])
   }
 
@@ -1600,7 +1610,7 @@ export default function App({
     setEmailBody(
       `Hi ${contact.name.split(' ')[0]},\n\nGreat chatting — here’s our ${kit.name.toLowerCase()} from ${brand}.\n\nHappy to walk through it on a quick call or Lark video whenever suits.\n\nBest,\n${currentAgent.name}`,
     )
-    showToast(`${kit.name} sent to ${contact.email} via Lark (mock)`)
+    showToast(`${kit.name} loaded below — review, then click Send email.`)
   }
 
   async function handleGenerateReferralCode() {
@@ -3443,7 +3453,7 @@ export default function App({
                       <div className="btn-row">
                         <button className="btn lark" onClick={sendLarkEmail}>
                           <Mail size={16} />
-                          Send with Lark
+                          Send email
                         </button>
                         <button
                           className="btn ghost"
