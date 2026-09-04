@@ -7,6 +7,7 @@ import { ReportsScreen } from './components/screens/ReportsScreen'
 import { PipelineScreen } from './components/screens/PipelineScreen'
 import { NewContactForm, type NewContactDraft } from './components/contacts/NewContactForm'
 import { ContactViews } from './components/contacts/ContactViews'
+import { supabase } from './lib/supabase/client'
 
 // Vite ESM interop: default export is often `{ default: Component }`.
 const Lottie =
@@ -2637,7 +2638,7 @@ export default function App({
                         </button>
                         <button
                           className="btn lark"
-                          onClick={() => {
+                          onClick={async () => {
                             if (!contact.email) {
                               showToast('No email on file for this contact — add one first, or use Copy link.')
                               return
@@ -2649,8 +2650,18 @@ export default function App({
                             // the compose window opens but comes up blank, no error shown.
                             // Recipient + subject are short and safe to pass in the URL.
                             void navigator.clipboard?.writeText(body)
-                            window.location.href = `mailto:${contact.email}?subject=${encodeURIComponent(subject)}`
-                            showToast('Message copied — press ⌘V in the email to paste it in.')
+                            // CC the sender — so the link survives a refresh even though the
+                            // CRM only holds it in memory. Best-effort: if the session lookup
+                            // fails, the email still goes out, just without the CC.
+                            const { data } = await supabase.auth.getUser().catch(() => ({ data: null }))
+                            const selfEmail = data?.user?.email
+                            const cc = selfEmail ? `&cc=${encodeURIComponent(selfEmail)}` : ''
+                            window.location.href = `mailto:${contact.email}?subject=${encodeURIComponent(subject)}${cc}`
+                            showToast(
+                              selfEmail
+                                ? `Message copied — press ⌘V. A copy will CC you at ${selfEmail}.`
+                                : 'Message copied — press ⌘V in the email to paste it in.',
+                            )
                           }}
                         >
                           <Mail size={16} />
