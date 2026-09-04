@@ -1494,6 +1494,28 @@ export default function App({
     }
   }
 
+  async function scheduleLarkVideo() {
+    // For sending a link well ahead of the actual call — no live call starts,
+    // nothing pops up, just a link ready to email. Uses the same reservation
+    // as starting now; the edge function gives it a long validity window so
+    // it still works whenever the contact actually clicks it.
+    showToast('Creating video link…')
+    try {
+      const { joinUrl } = await createLarkVideoInvite({
+        contactName: contact.name,
+        contactEmail: contact.email,
+        agentName: currentAgent.name,
+        brand: dealBrand === 'clocal' ? 'CLocal' : 'ClickClick',
+      })
+      setLarkMeetingUrl(joinUrl)
+      showToast('Video link ready — use Email link below to send it.')
+    } catch (err) {
+      showToast(
+        err instanceof Error ? `Couldn't create video link: ${err.message}` : "Couldn't create video link",
+      )
+    }
+  }
+
   async function startLarkVideo() {
     setOnCall(true)
     setRecording(true)
@@ -1578,15 +1600,17 @@ export default function App({
       showToast('No email on file for this contact — add one first.')
       return
     }
-    // Same trick as the video invite: open the agent's own mail app, pre-filled,
-    // they hit Send. mailto: can't carry file attachments (no browser lets a page
-    // stage those automatically for security reasons), so just remind the agent
-    // to drop them in by hand if any are staged.
-    window.location.href = `mailto:${contact.email}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`
+    // Safari (and some other browsers) silently drop the body of a mailto: link
+    // once the URL gets long — the compose window opens but comes up blank, with
+    // no error. Recipient + subject are always short and safe to pass in the URL;
+    // the body goes on the clipboard instead so it's never at the mercy of a
+    // length limit. One paste, but it always arrives.
+    void navigator.clipboard?.writeText(emailBody)
+    window.location.href = `mailto:${contact.email}?subject=${encodeURIComponent(emailSubject)}`
     showToast(
       emailAttachments.length
-        ? `Opening your email app — attach ${emailAttachments.length} file${emailAttachments.length > 1 ? 's' : ''} manually, mail links can't do that part.`
-        : 'Opening your email app…',
+        ? `Message copied — press ⌘V to paste it in, then attach ${emailAttachments.length} file${emailAttachments.length > 1 ? 's' : ''} by hand.`
+        : 'Message copied — press ⌘V in the email to paste it in.',
     )
     setEmailAttachments([])
   }
@@ -2593,7 +2617,13 @@ export default function App({
                       ? 'Uses Lark’s live meeting — easy when they want face-to-face. Link can go by Lark email.'
                       : 'Uses your Telnyx numbers · auto local caller ID.'}
                   </p>
-                  {larkMeetingUrl && onCall && callChannel === 'lark_video' && (
+                  {callChannel === 'lark_video' && !larkMeetingUrl && (
+                    <button className="btn ghost" onClick={scheduleLarkVideo}>
+                      <Mail size={16} />
+                      Send invite for later — no call starts now
+                    </button>
+                  )}
+                  {larkMeetingUrl && callChannel === 'lark_video' && (
                     <div className="lark-meet-row">
                       <strong>Meeting link</strong>
                       <code>{larkMeetingUrl}</code>
@@ -2613,12 +2643,14 @@ export default function App({
                               return
                             }
                             const subject = `Video call link from ${currentAgent.name}`
-                            const body = `Hi ${contact.name.split(' ')[0]},\n\n${currentAgent.name} would like to hop on a quick video call with you.\n\n${larkMeetingUrl}\n\nSee you there!`
-                            // Opens the agent's own mail app with everything pre-filled — they
-                            // hit Send from their real account. No sending service, no domain
-                            // verification: it really is them sending it, same as any mailto link.
-                            window.location.href = `mailto:${contact.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
-                            showToast('Opening your email app…')
+                            const body = `Hi ${contact.name.split(' ')[0]},\n\n${currentAgent.name} would like to set up a video call with you.\n\n${larkMeetingUrl}\n\nSee you there!`
+                            // Body goes on the clipboard, not in the mailto URL: Safari (and
+                            // others) silently drop a mailto body once the link gets long —
+                            // the compose window opens but comes up blank, no error shown.
+                            // Recipient + subject are short and safe to pass in the URL.
+                            void navigator.clipboard?.writeText(body)
+                            window.location.href = `mailto:${contact.email}?subject=${encodeURIComponent(subject)}`
+                            showToast('Message copied — press ⌘V in the email to paste it in.')
                           }}
                         >
                           <Mail size={16} />

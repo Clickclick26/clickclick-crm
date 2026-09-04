@@ -62,7 +62,10 @@ async function reserveMeeting(
   ownerId: string,
   topic: string,
 ): Promise<string> {
-  const endTime = Math.floor(Date.now() / 1000) + 2 * 60 * 60 // 2 hours from now
+  // Lark's reserve API takes only an expiry, not a start time — the link works
+  // as soon as it exists and stays valid until end_time. 30 days is the max
+  // Lark allows, which covers sending an invite well ahead of the actual call.
+  const endTime = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60
   const res = await fetch(`${LARK_BASE}/vc/v1/reserves/apply`, {
     method: "POST",
     headers: {
