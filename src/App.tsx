@@ -2597,31 +2597,22 @@ export default function App({
                         </button>
                         <button
                           className="btn lark"
-                          onClick={async () => {
-                            showToast('Re-sending meeting link…')
-                            try {
-                              const { emailed } = await createLarkVideoInvite({
-                                contactName: contact.name,
-                                contactEmail: contact.email,
-                                agentName: currentAgent.name,
-                                existingJoinUrl: larkMeetingUrl,
-                              })
-                              showToast(
-                                emailed
-                                  ? `Meeting link emailed to ${contact.name}`
-                                  : 'Email not set up yet — use Copy link instead',
-                              )
-                            } catch (err) {
-                              showToast(
-                                err instanceof Error
-                                  ? `Couldn't email link: ${err.message}`
-                                  : "Couldn't email link",
-                              )
+                          onClick={() => {
+                            if (!contact.email) {
+                              showToast('No email on file for this contact — add one first, or use Copy link.')
+                              return
                             }
+                            const subject = `Video call link from ${currentAgent.name}`
+                            const body = `Hi ${contact.name.split(' ')[0]},\n\n${currentAgent.name} would like to hop on a quick video call with you.\n\n${larkMeetingUrl}\n\nSee you there!`
+                            // Opens the agent's own mail app with everything pre-filled — they
+                            // hit Send from their real account. No sending service, no domain
+                            // verification: it really is them sending it, same as any mailto link.
+                            window.location.href = `mailto:${contact.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+                            showToast('Opening your email app…')
                           }}
                         >
                           <Mail size={16} />
-                          Email link again
+                          Email link
                         </button>
                         <button
                           className="btn ghost"
