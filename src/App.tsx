@@ -1596,23 +1596,49 @@ export default function App({
     })
   }
 
+  // Safari (and some other browsers) silently drop the body of a mailto: link
+  // once the whole URL gets long — the compose window opens but comes up blank,
+  // no error shown. Most real messages are nowhere near that limit, so open the
+  // link with the body inline by default (fully automatic, nothing to paste).
+  // Only the rare oversized message needs the clipboard fallback — and even
+  // then, only the body; recipient + subject stay in the URL either way.
+  const MAILTO_SAFE_LENGTH = 1800
+  function openMailtoAuto(
+    to: string,
+    subject: string,
+    body: string,
+    cc?: string,
+  ): { pasted: boolean } {
+    const ccParam = cc ? `&cc=${encodeURIComponent(cc)}` : ''
+    const full = `mailto:${to}?subject=${encodeURIComponent(subject)}${ccParam}&body=${encodeURIComponent(body)}`
+    if (full.length <= MAILTO_SAFE_LENGTH) {
+      window.location.href = full
+      return { pasted: false }
+    }
+    void navigator.clipboard?.writeText(body)
+    window.location.href = `mailto:${to}?subject=${encodeURIComponent(subject)}${ccParam}`
+    return { pasted: true }
+  }
+
   function sendLarkEmail() {
     if (!contact.email) {
       showToast('No email on file for this contact — add one first.')
       return
     }
-    // Safari (and some other browsers) silently drop the body of a mailto: link
-    // once the URL gets long — the compose window opens but comes up blank, with
-    // no error. Recipient + subject are always short and safe to pass in the URL;
-    // the body goes on the clipboard instead so it's never at the mercy of a
-    // length limit. One paste, but it always arrives.
-    void navigator.clipboard?.writeText(emailBody)
-    window.location.href = `mailto:${contact.email}?subject=${encodeURIComponent(emailSubject)}`
-    showToast(
-      emailAttachments.length
-        ? `Message copied — press ⌘V to paste it in, then attach ${emailAttachments.length} file${emailAttachments.length > 1 ? 's' : ''} by hand.`
-        : 'Message copied — press ⌘V in the email to paste it in.',
-    )
+    const { pasted } = openMailtoAuto(contact.email, emailSubject, emailBody)
+    if (pasted) {
+      showToast(
+        emailAttachments.length
+          ? `Long message — copied instead. Press ⌘V to paste it in, then attach ${emailAttachments.length} file${emailAttachments.length > 1 ? 's' : ''} by hand.`
+          : 'Long message — copied instead. Press ⌘V in the email to paste it in.',
+      )
+    } else {
+      showToast(
+        emailAttachments.length
+          ? `Opening your email app — attach ${emailAttachments.length} file${emailAttachments.length > 1 ? 's' : ''} by hand, mail links can't do that part.`
+          : 'Opening your email app…',
+      )
+    }
     setEmailAttachments([])
   }
 
@@ -2645,22 +2671,18 @@ export default function App({
                             }
                             const subject = `Video call link from ${currentAgent.name}`
                             const body = `Hi ${contact.name.split(' ')[0]},\n\n${currentAgent.name} would like to set up a video call with you.\n\n${larkMeetingUrl}\n\nSee you there!`
-                            // Body goes on the clipboard, not in the mailto URL: Safari (and
-                            // others) silently drop a mailto body once the link gets long —
-                            // the compose window opens but comes up blank, no error shown.
-                            // Recipient + subject are short and safe to pass in the URL.
-                            void navigator.clipboard?.writeText(body)
                             // CC the sender — so the link survives a refresh even though the
                             // CRM only holds it in memory. Best-effort: if the session lookup
                             // fails, the email still goes out, just without the CC.
                             const { data } = await supabase.auth.getUser().catch(() => ({ data: null }))
                             const selfEmail = data?.user?.email
-                            const cc = selfEmail ? `&cc=${encodeURIComponent(selfEmail)}` : ''
-                            window.location.href = `mailto:${contact.email}?subject=${encodeURIComponent(subject)}${cc}`
+                            const { pasted } = openMailtoAuto(contact.email, subject, body, selfEmail)
                             showToast(
-                              selfEmail
-                                ? `Message copied — press ⌘V. A copy will CC you at ${selfEmail}.`
-                                : 'Message copied — press ⌘V in the email to paste it in.',
+                              pasted
+                                ? 'Long message — copied instead. Press ⌘V in the email to paste it in.'
+                                : selfEmail
+                                  ? `Opening your email app — a copy will CC you at ${selfEmail}.`
+                                  : 'Opening your email app…',
                             )
                           }}
                         >
