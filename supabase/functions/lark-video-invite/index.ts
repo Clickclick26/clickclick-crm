@@ -1,34 +1,60 @@
-// Creates a Lark video meeting and emails the join link to a contact.
-// Secrets required (set via `supabase secrets set` or the dashboard):
-//   LARK_APP_ID, LARK_APP_SECRET       — from the Lark custom app
-//   LARK_MEETING_OWNER_ID              — a Lark user's open_id to own reserved meetings
-//   RESEND_API_KEY                     — from resend.com
-//   MAIL_FROM                          — e.g. "ClickClick <hello@clickclick.video>"
+// Creates a Lark video meeting and (optionally) emails the join link to a contact.
+// Secrets (Supabase Dashboard → Edge Functions → Secrets, or `supabase secrets set`):
+//   LARK_APP_ID, LARK_APP_SECRET       — from the Lark custom app (Credentials & Basic Info)
+//   LARK_MEETING_OWNER_EMAIL           — the Lark login email of the person who "owns"
+//                                        reserved meetings (looked up to an open_id at runtime)
+//   LARK_MEETING_OWNER_ID              — optional: skip the lookup and pass an open_id directly
+//   RESEND_API_KEY                     — optional: from resend.com. If unset, we still reserve
+//                                        the meeting and return the link (no email sent).
+//   MAIL_FROM                          — optional: e.g. "ClickClick <hello@clickclick.video>"
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 type Body = {
   contactName: string
-  contactEmail: string
+  contactEmail?: string
   agentName: string
   brand?: string
   /** If set, re-send this existing link instead of reserving a new meeting. */
   existingJoinUrl?: string
 }
 
+const LARK_BASE = "https://open.larksuite.com/open-apis"
+
 async function getTenantAccessToken(appId: string, appSecret: string) {
-  const res = await fetch(
-    "https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json; charset=utf-8" },
-      body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
-    },
-  )
+  const res = await fetch(`${LARK_BASE}/auth/v3/tenant_access_token/internal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
+  })
   const data = await res.json()
   if (data.code !== 0) {
     throw new Error(`Lark auth failed: ${data.msg ?? "unknown error"}`)
   }
   return data.tenant_access_token as string
+}
+
+/** Resolve a Lark login email to the user's open_id (needed as the meeting owner). */
+async function getOpenIdByEmail(accessToken: string, email: string): Promise<string> {
+  const res = await fetch(
+    `${LARK_BASE}/contact/v3/users/batch_get_id?user_id_type=open_id`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json; charset=utf-8",
+      },
+      body: JSON.stringify({ emails: [email], include_resigned: false }),
+    },
+  )
+  const data = await res.json()
+  if (data.code !== 0) {
+    throw new Error(`Lark user lookup failed: ${data.msg ?? "unknown error"}`)
+  }
+  const openId = data.data?.user_list?.[0]?.user_id as string | undefined
+  if (!openId) {
+    throw new Error(`No Lark user found for ${email}`)
+  }
+  return openId
 }
 
 async function reserveMeeting(
@@ -37,7 +63,7 @@ async function reserveMeeting(
   topic: string,
 ): Promise<string> {
   const endTime = Math.floor(Date.now() / 1000) + 2 * 60 * 60 // 2 hours from now
-  const res = await fetch("https://open.larksuite.com/open-apis/vc/v1/reserves/apply", {
+  const res = await fetch(`${LARK_BASE}/vc/v1/reserves/apply`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -126,40 +152,50 @@ Deno.serve(async (req) => {
 
   try {
     const body: Body = await req.json()
-    if (!body.contactName || !body.contactEmail || !body.agentName) {
+    // contactEmail is optional — plenty of contacts don't have one on file yet.
+    // We just skip emailing the link in that case; the meeting still gets created.
+    if (!body.contactName || !body.agentName) {
       return json(400, { error: "Missing required fields" }, origin)
     }
 
     const resendKey = Deno.env.get("RESEND_API_KEY")
     const mailFrom = Deno.env.get("MAIL_FROM")
 
-    if (!resendKey || !mailFrom) {
-      return json(500, { error: "Server not configured" }, origin)
-    }
-
     let joinUrl = body.existingJoinUrl
     if (!joinUrl) {
       const appId = Deno.env.get("LARK_APP_ID")
       const appSecret = Deno.env.get("LARK_APP_SECRET")
-      const ownerId = Deno.env.get("LARK_MEETING_OWNER_ID")
-      if (!appId || !appSecret || !ownerId) {
-        return json(500, { error: "Server not configured" }, origin)
+      const ownerIdEnv = Deno.env.get("LARK_MEETING_OWNER_ID")
+      const ownerEmail = Deno.env.get("LARK_MEETING_OWNER_EMAIL")
+      if (!appId || !appSecret || (!ownerIdEnv && !ownerEmail)) {
+        return json(500, { error: "Server not configured (Lark)" }, origin)
       }
       const accessToken = await getTenantAccessToken(appId, appSecret)
+      const ownerId = ownerIdEnv || (await getOpenIdByEmail(accessToken, ownerEmail!))
       const topic = `${body.brand ?? "ClickClick"} call with ${body.contactName}`
       joinUrl = await reserveMeeting(accessToken, ownerId, topic)
     }
 
-    await sendInviteEmail({
-      apiKey: resendKey,
-      from: mailFrom,
-      to: body.contactEmail,
-      agentName: body.agentName,
-      contactName: body.contactName,
-      joinUrl,
-    })
+    // Email is best-effort: if Resend isn't set up yet, the agent still gets the
+    // link back to copy/paste or send via Lark chat.
+    let emailed = false
+    if (resendKey && mailFrom && body.contactEmail) {
+      try {
+        await sendInviteEmail({
+          apiKey: resendKey,
+          from: mailFrom,
+          to: body.contactEmail,
+          agentName: body.agentName,
+          contactName: body.contactName,
+          joinUrl,
+        })
+        emailed = true
+      } catch (mailErr) {
+        console.error("lark-video-invite email failed:", (mailErr as Error).message)
+      }
+    }
 
-    return json(200, { joinUrl }, origin)
+    return json(200, { joinUrl, emailed }, origin)
   } catch (err) {
     return json(500, { error: (err as Error).message }, origin)
   }

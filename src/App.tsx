@@ -1479,20 +1479,40 @@ export default function App({
     )
   }
 
+  function openLarkVideoWindow(url: string) {
+    // Not a true embed — Lark doesn't let other sites embed its live meeting UI.
+    // A sized, named pop-out is the closest thing to "the call happens in the
+    // platform": same click, no tab-hunting, and re-clicking focuses the same window
+    // instead of opening a second one (see the shared window name below).
+    const popup = window.open(
+      url,
+      'lark-video-call',
+      'width=1040,height=760,resizable=yes,scrollbars=yes,noopener,noreferrer',
+    )
+    if (!popup) {
+      showToast('Pop-up blocked — click "Open call window" below, or allow pop-ups for this site.')
+    }
+  }
+
   async function startLarkVideo() {
     setOnCall(true)
     setRecording(true)
     setActiveObjection(null)
     showToast('Setting up Lark video…')
     try {
-      const joinUrl = await createLarkVideoInvite({
+      const { joinUrl, emailed } = await createLarkVideoInvite({
         contactName: contact.name,
         contactEmail: contact.email,
         agentName: currentAgent.name,
         brand: dealBrand === 'clocal' ? 'CLocal' : 'ClickClick',
       })
       setLarkMeetingUrl(joinUrl)
-      showToast(`Lark video ready · invite emailed to ${contact.name}`)
+      openLarkVideoWindow(joinUrl)
+      showToast(
+        emailed
+          ? `Lark video ready · invite emailed to ${contact.name}`
+          : 'Lark video ready · call window opened',
+      )
     } catch (err) {
       setOnCall(false)
       setRecording(false)
@@ -2570,16 +2590,27 @@ export default function App({
                       <div className="btn-row">
                         <button
                           className="btn lark"
+                          onClick={() => openLarkVideoWindow(larkMeetingUrl)}
+                        >
+                          <Video size={16} />
+                          Open call window
+                        </button>
+                        <button
+                          className="btn lark"
                           onClick={async () => {
                             showToast('Re-sending meeting link…')
                             try {
-                              await createLarkVideoInvite({
+                              const { emailed } = await createLarkVideoInvite({
                                 contactName: contact.name,
                                 contactEmail: contact.email,
                                 agentName: currentAgent.name,
                                 existingJoinUrl: larkMeetingUrl,
                               })
-                              showToast(`Meeting link emailed to ${contact.name}`)
+                              showToast(
+                                emailed
+                                  ? `Meeting link emailed to ${contact.name}`
+                                  : 'Email not set up yet — use Copy link instead',
+                              )
                             } catch (err) {
                               showToast(
                                 err instanceof Error
