@@ -181,6 +181,40 @@ export type Database = {
         created_at: string
         updated_at: string
       }>
+      boards: Row<{
+        id: string
+        owner_id: string
+        name: string
+        accent: 'turquoise' | 'purple' | 'pink' | 'amber' | 'ink'
+        shared: boolean
+        position: number
+        created_at: string
+      }>
+      board_lists: Row<{
+        id: string
+        board_id: string
+        name: string
+        colour: 'turquoise' | 'purple' | 'pink' | 'amber' | 'red' | 'slate'
+        position: number
+      }>
+      board_cards: Row<{
+        id: string
+        board_id: string
+        list_id: string
+        title: string
+        org: string
+        kind: '' | 'task' | 'grant' | 'competition' | 'support'
+        amount: number
+        due_date: string | null
+        status: '' | 'eligible' | 'check' | 'blocked'
+        remind_days: number
+        labels: string[]
+        url: string
+        notes: string
+        position: number
+        created_at: string
+        updated_at: string
+      }>
     }
   }
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import LottieImport from 'lottie-react'
 import confettiAnimation from './assets/confetti.json'
 import { GeminiSpark } from './components/GeminiSpark'
+import { BoardsScreen } from './components/screens/BoardsScreen'
 import { ListsScreen } from './components/screens/ListsScreen'
 import { ReportsScreen } from './components/screens/ReportsScreen'
 import { PipelineScreen } from './components/screens/PipelineScreen'
@@ -36,6 +37,7 @@ import {
   CreditCard,
   Landmark,
   Columns3,
+  KanbanSquare,
   Play,
   VolumeX,
   Video,
@@ -159,6 +161,7 @@ type NavId =
   | 'pipeline'
   | 'lists'
   | 'reports'
+  | 'boards'
   | 'settings'
 
 const NAV_IDS: NavId[] = [
@@ -168,6 +171,7 @@ const NAV_IDS: NavId[] = [
   'pipeline',
   'lists',
   'reports',
+  'boards',
   'settings',
 ]
 
@@ -1749,6 +1753,7 @@ export default function App({
     { id: 'pipeline', icon: Columns3, label: 'Pipeline' },
     { id: 'lists', icon: ListChecks, label: 'Lists' },
     { id: 'reports', icon: BarChart3, label: 'Reports' },
+    { id: 'boards', icon: KanbanSquare, label: 'Boards' },
   ]
 
   const showPanel = nav === 'recents' || nav === 'contacts' || nav === 'dialer'
@@ -2060,6 +2065,10 @@ export default function App({
           )}
 
           {nav === 'reports' && <ReportsScreen agents={agents} />}
+
+          {nav === 'boards' && (
+            <BoardsScreen agentId={currentAgent.id} onToast={showToast} />
+          )}
 
           {nav === 'settings' && currentAgent.role === 'admin' && (
             <div className="lists-view admin-settings">
