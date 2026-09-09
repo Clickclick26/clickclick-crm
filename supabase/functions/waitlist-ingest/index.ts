@@ -67,6 +67,37 @@ function asString(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+/**
+ * Rough per-IP rate limit. In-memory, so it resets whenever the isolate
+ * recycles — that is fine for a waitlist: it exists to stop one source
+ * hammering the form, not to be an exact quota. A real signer never gets
+ * near 8 in an hour.
+ */
+const rateBucket = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT = 8;
+const RATE_WINDOW_MS = 60 * 60 * 1000;
+
+function clientIp(req: Request): string {
+  return (
+    req.headers.get("cf-connecting-ip") ??
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    req.headers.get("x-real-ip") ??
+    "unknown"
+  );
+}
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateBucket.get(ip);
+  if (!entry || now > entry.resetAt) {
+    rateBucket.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT) return false;
+  entry.count += 1;
+  return true;
+}
+
 function normalizePostcode(value: string): string {
   const compact = value.toUpperCase().replace(/\s+/g, "");
   if (compact.length < 5) return compact;
@@ -175,6 +206,10 @@ Deno.serve(async (req) => {
   // it keeps passing — add the header to any new curl checks.
   if (!origin || !ALLOWED_ORIGINS.has(origin)) {
     return json(403, { error: "Origin not allowed" }, origin);
+  }
+
+  if (!checkRateLimit(clientIp(req))) {
+    return json(429, { error: "Too many requests. Try again later." }, origin);
   }
 
   let body: Body;
