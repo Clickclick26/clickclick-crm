@@ -214,8 +214,14 @@ Deno.serve(async (req) => {
     return json(405, { error: "Method not allowed" }, origin)
   }
 
-  // Require a known browser Origin (or allow non-browser tools with no Origin for curl tests).
-  if (origin && !ALLOWED_ORIGINS.has(origin)) {
+  // Require a known Origin — missing counts as not allowed. Browsers always send
+  // one; a script posting straight at this URL usually sends none, and the old
+  // `origin && ...` form let exactly that through. That gap is how the 5 Sep 2026
+  // form-spam probe worked on the FormSubmit side: scrape the endpoint out of the
+  // page, post to it directly, skip every check the page runs. The daily canary in
+  // the clocal-landing repo already sends `Origin: https://clocal.co.uk`, so
+  // legitimate curl checks still pass — add the header to any new ones.
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) {
     return json(403, { error: "Origin not allowed" }, origin)
   }
 
