@@ -5,9 +5,19 @@ import { GeminiSpark } from './components/GeminiSpark'
 import { ListsScreen } from './components/screens/ListsScreen'
 import { ReportsScreen } from './components/screens/ReportsScreen'
 import { PipelineScreen } from './components/screens/PipelineScreen'
+import { BoardsScreen } from './components/screens/BoardsScreen'
 import { NewContactForm, type NewContactDraft } from './components/contacts/NewContactForm'
 import { ContactViews } from './components/contacts/ContactViews'
 import { supabase } from './lib/supabase/client'
+import {
+  connectTelnyx,
+  disconnectTelnyx,
+  hangupTelnyxCall,
+  isTelnyxConfigured,
+  placeTelnyxCall,
+  setTelnyxMuted,
+  toE164,
+} from './lib/telnyx/client'
 
 // Vite ESM interop: default export is often `{ default: Component }`.
 const Lottie =
@@ -36,6 +46,7 @@ import {
   CreditCard,
   Landmark,
   Columns3,
+  KanbanSquare,
   Play,
   VolumeX,
   Video,
@@ -85,6 +96,7 @@ import {
   type PayType,
   type PipelineStage,
 } from './data/mock'
+import { CALL_FACTS, FLOW_START, flowStep } from './data/callflow'
 import { fetchAgents } from './lib/supabase/agents'
 import { parseContactCsv } from './lib/csv'
 import { parseInstagramBlock } from './lib/instagram'
@@ -158,6 +170,7 @@ type NavId =
   | 'contacts'
   | 'pipeline'
   | 'lists'
+  | 'boards'
   | 'reports'
   | 'settings'
 
@@ -167,6 +180,7 @@ const NAV_IDS: NavId[] = [
   'contacts',
   'pipeline',
   'lists',
+  'boards',
   'reports',
   'settings',
 ]
@@ -363,7 +377,31 @@ export default function App({
   const [muted, setMuted] = useState(false)
   const [recording, setRecording] = useState(false)
   const [listeningIn, setListeningIn] = useState(false)
+
+  // Open the Telnyx WebSocket once, if credentials exist. With no token this is
+  // a no-op and the dialer keeps using the simulated call path in startCall().
+  useEffect(() => {
+    if (!isTelnyxConfigured()) return
+    connectTelnyx((state) => {
+      // Far end hung up, or the call failed to set up — bring the UI back in
+      // step, otherwise the hero stays stuck showing an active call.
+      if (state === 'hangup') {
+        setOnCall(false)
+        setRecording(false)
+        setMuted(false)
+      }
+    })
+    return () => disconnectTelnyx()
+  }, [])
+
+  // Mirror the mute toggle onto the live call. No-op while simulating or idle.
+  useEffect(() => {
+    setTelnyxMuted(muted)
+  }, [muted])
   const [outcome, setOutcome] = useState<CallOutcome | null>(null)
+  // Where you are in the guided call script. Last entry is the current step;
+  // the rest is the trail, so "back" is just dropping the tail.
+  const [flowPath, setFlowPath] = useState<string[]>([FLOW_START])
   const [toast, setToast] = useState<{
     message: string
     action?: { label: string; onClick: () => void }
@@ -891,18 +929,25 @@ export default function App({
     })
   }, [filter, query])
 
+  // A non-empty search box searches EVERY brand and list — the brand /
+  // list / category filters only shape the view when you're browsing, not
+  // when you're looking for a specific person. Searching inside the current
+  // filter used to hide known contacts behind the wrong tab.
+  const isSearchingContacts = query.trim().length > 0
   const filteredContacts = useMemo(() => {
-    const q = query.toLowerCase()
+    const q = query.trim().toLowerCase()
     return contacts.filter((c) => {
-      if (c.brandId !== contactsBrand) return false
-      if (contactFilter === 'due') {
-        if (!isFollowUpDue(c.nextCallback)) return false
-      } else if (contactFilter !== 'all' && !c.tags.includes(contactFilter)) {
-        return false
+      if (!q) {
+        if (c.brandId !== contactsBrand) return false
+        if (contactFilter === 'due') {
+          if (!isFollowUpDue(c.nextCallback)) return false
+        } else if (contactFilter !== 'all' && !c.tags.includes(contactFilter)) {
+          return false
+        }
+        if (contactsBrand === 'clocal' && categoryFilter !== 'all' && c.industry !== categoryFilter)
+          return false
+        return true
       }
-      if (contactsBrand === 'clocal' && categoryFilter !== 'all' && c.industry !== categoryFilter)
-        return false
-      if (!q) return true
       const hay =
         `${c.name} ${c.company} ${c.phone} ${c.email} ${c.tags.join(' ')} ${c.industry ?? ''} ${c.locality} ${c.linkedinUrl} ${c.extraPeople.map((p) => p.name).join(' ')}`.toLowerCase()
       return hay.includes(q)
@@ -1249,13 +1294,34 @@ export default function App({
 
   const dealTrack = dealChecklist(dealStatus, payType)
 
-  const scriptText = useMemo(() => {
-    if (activeObjection) {
-      const obj = OBJECTIONS.find((o) => o.id === activeObjection)
-      return obj?.reply ?? ''
+  const flowCurrent = flowStep(flowPath[flowPath.length - 1])
+  const activeRebuttal = activeObjection
+    ? (OBJECTIONS.find((o) => o.id === activeObjection) ?? null)
+    : null
+
+  const sayText = useMemo(() => {
+    const template = flowCurrent.useScript ? activeScript.body : (flowCurrent.say ?? '')
+    return template ? fillScript(template, contact, currentAgent.name) : ''
+  }, [flowCurrent, activeScript.body, contact, currentAgent.name])
+
+  /**
+   * Move to the next step. Landing on a step that ends the call disposes it
+   * here, so the outcome is never a second thing to remember. Nothing advances
+   * on its own, so this only ever runs off a button press.
+   */
+  function goToStep(id: string) {
+    const next = flowStep(id)
+    setActiveObjection(null)
+    setFlowPath((path) => [...path, id])
+    if (next.outcome) {
+      setOutcome(next.outcome)
+      showToast(
+        next.outcome === 'do_not_call'
+          ? 'Marked Do Not Call — dialer will block.'
+          : `Call marked ${OUTCOME_LABEL[next.outcome]}.`,
+      )
     }
-    return fillScript(activeScript.body, contact, currentAgent.name)
-  }, [activeObjection, activeScript.body, contact])
+  }
 
   const selectedTemplate =
     contractTemplates.find((t) => t.id === selectedTemplateId) ?? contractTemplates[0]
@@ -1426,6 +1492,7 @@ export default function App({
       )
     }
     setActiveObjection(null)
+    setFlowPath([FLOW_START])
     setOutcome(call.outcome ?? null)
     setFeedbackDraft('')
     setPlayingCallId(null)
@@ -1435,12 +1502,19 @@ export default function App({
   function selectContact(person: Contact) {
     flushPendingNotes()
     setComposingNew(false)
+    // Opening a cross-brand search result switches the brand tab to match,
+    // so the list you return to actually contains the person you just opened.
+    if (person.brandId !== contactsBrand) {
+      setContactsBrand(person.brandId)
+      setCategoryFilter('all')
+    }
     setSelectedContactId(person.id)
     setNotes(stripMetaNotes(person.notes))
     setEmailBody(
       `Hi ${person.name.split(' ')[0]},\n\nGreat speaking — here’s a short follow-up from ClickClick.\n\nBest,\n${currentAgent.name}`,
     )
     setActiveObjection(null)
+    setFlowPath([FLOW_START])
     const related = CALLS.find((c) => c.contactId === person.id)
     if (related) {
       setSelectedCallId(related.id)
@@ -1470,6 +1544,29 @@ export default function App({
     if (callChannel === 'lark_video') {
       startLarkVideo()
       return
+    }
+    // Real call when Telnyx credentials are present; otherwise fall through to
+    // the simulated call so the dialer still demos without an account. The Do
+    // Not Call and TPS/CTPS gates above have both already passed by here — no
+    // dial can happen before them.
+    if (isTelnyxConfigured()) {
+      const destination = toE164(contact.phone)
+      if (!destination) {
+        showToast(`Can’t dial “${contact.phone}” — not a recognisable phone number.`)
+        return
+      }
+      try {
+        placeTelnyxCall({
+          destinationNumber: destination,
+          callerNumber: fromPick.number.e164,
+          callerName: currentAgent.name,
+        })
+      } catch (err) {
+        showToast(
+          err instanceof Error ? `Couldn’t start call: ${err.message}` : 'Couldn’t start call',
+        )
+        return
+      }
     }
     setOnCall(true)
     setRecording(true) // always on — every call is recorded
@@ -1546,6 +1643,7 @@ export default function App({
   }
 
   function endCall() {
+    hangupTelnyxCall() // no-op when simulating, or when the far end already hung up
     setOnCall(false)
     setMuted(false)
     setRecording(false)
@@ -1748,6 +1846,7 @@ export default function App({
     { id: 'contacts', icon: Users, label: 'Contacts' },
     { id: 'pipeline', icon: Columns3, label: 'Pipeline' },
     { id: 'lists', icon: ListChecks, label: 'Lists' },
+    { id: 'boards', icon: KanbanSquare, label: 'Boards' },
     { id: 'reports', icon: BarChart3, label: 'Reports' },
   ]
 
@@ -1927,6 +2026,12 @@ export default function App({
               />
             </div>
             <div className="list">
+              {nav === 'contacts' && isSearchingContacts && (
+                <div className="list-search-scope">
+                  Searching all brands · {filteredContacts.length}{' '}
+                  {filteredContacts.length === 1 ? 'result' : 'results'}
+                </div>
+              )}
               {nav === 'contacts'
                 ? filteredContacts.map((person) => (
                     <div
@@ -1941,6 +2046,12 @@ export default function App({
                         <div>
                           <div className="call-phone">{person.name}</div>
                           <div className="call-meta">
+                            {isSearchingContacts && (
+                              <span className="row-brand-chip">
+                                {BRANDS.find((b) => b.id === person.brandId)?.label ??
+                                  person.brandId}
+                              </span>
+                            )}
                             {person.company
                               ? `${person.company} · `
                               : ''}
@@ -2057,6 +2168,10 @@ export default function App({
               onSelectList={setActiveList}
               onToast={showToast}
             />
+          )}
+
+          {nav === 'boards' && (
+            <BoardsScreen agentId={currentAgent.id} onToast={showToast} />
           )}
 
           {nav === 'reports' && <ReportsScreen agents={agents} />}
@@ -2779,13 +2894,88 @@ export default function App({
 
                 <div className="grid-2">
                   <div className="card">
-                    <div className="script-title">
-                      <h3 style={{ margin: 0 }}>
-                        {activeObjection ? 'Objection reply' : 'Script'}
-                      </h3>
-                      <span>{activeObjection ? 'Pop-up' : activeScript.title}</span>
+                    <div className="cf-trail">
+                      {flowPath.map((id, i) => (
+                        <button
+                          key={`${id}-${i}`}
+                          className={`cf-crumb ${i === flowPath.length - 1 ? 'now' : ''}`}
+                          onClick={() => {
+                            setActiveObjection(null)
+                            setFlowPath(flowPath.slice(0, i + 1))
+                          }}
+                        >
+                          {flowStep(id).stage}
+                        </button>
+                      ))}
+                      {flowPath.length > 1 && (
+                        <button
+                          className="cf-restart"
+                          onClick={() => {
+                            setActiveObjection(null)
+                            setFlowPath([FLOW_START])
+                          }}
+                        >
+                          Start again
+                        </button>
+                      )}
                     </div>
-                    <div className="script-box">{scriptText}</div>
+
+                    {activeRebuttal ? (
+                      <>
+                        <p className="cf-do">They said: {activeRebuttal.label}</p>
+                        <div className="cf-say">{activeRebuttal.reply}</div>
+                        {activeRebuttal.then && (
+                          <p className="cf-then">{activeRebuttal.then}</p>
+                        )}
+                        <button
+                          className="cf-choice go"
+                          onClick={() => setActiveObjection(null)}
+                        >
+                          Back to {flowCurrent.stage}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {flowCurrent.do && <p className="cf-do">{flowCurrent.do}</p>}
+                        {sayText && <div className="cf-say">{sayText}</div>}
+                        {flowCurrent.then && <p className="cf-then">{flowCurrent.then}</p>}
+
+                        {flowCurrent.choices.length > 0 ? (
+                          <>
+                            <p className="cf-prompt">What did they say?</p>
+                            <div className="cf-choices">
+                              {flowCurrent.choices.map((choice) => (
+                                <button
+                                  key={`${choice.to}-${choice.label}`}
+                                  className={`cf-choice ${choice.tone ?? 'soft'}`}
+                                  onClick={() => goToStep(choice.to)}
+                                >
+                                  {choice.label}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="cf-done">
+                            Call finished. Marked{' '}
+                            <strong>
+                              {flowCurrent.outcome ? OUTCOME_LABEL[flowCurrent.outcome] : '—'}
+                            </strong>
+                            .
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    <div className="cf-facts">
+                      {CALL_FACTS.map((fact) => (
+                        <span key={fact.label}>
+                          <b>{fact.label}</b> {fact.value}
+                        </span>
+                      ))}
+                    </div>
+
+                    <p className="cf-prompt">They pushed back</p>
                     <div className="objection-row">
                       {OBJECTIONS.map((obj) => (
                         <button
@@ -3853,7 +4043,7 @@ export default function App({
       {payConfetti && <PayConfettiBurst />}
 
       {toast && (
-        <div className="toast">
+        <div className="toast" role="status" aria-live="polite">
           {toast.message}
           {toast.action && (
             <button

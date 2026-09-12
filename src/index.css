@@ -6,6 +6,14 @@
   --ink: #1a1a1a;
   --mid: #6b6b6b;
   --light: #9a9a9a;
+  /* Darker siblings of the faint tokens, used ONLY where the colour is
+     small text on white and --light / --turquoise-deep / --pink fail WCAG
+     contrast. Every fill, dot, chip background, icon and border keeps the
+     original token — the brand colours are unchanged. */
+  --text-quiet: #6f6f6f;
+  --turquoise-text: #00707e;
+  --pink-text: #c21e68;
+  --focus-ring: #0097a7;
   --line: transparent;
   --turquoise: #00bcd4;
   --turquoise-deep: #0097a7;
@@ -59,6 +67,38 @@ button {
   cursor: pointer;
   border: none;
   background: none;
+}
+
+/* Keyboard focus — visible everywhere (mouse clicks stay ring-free via
+   :focus-visible). The app's soft blue glow was ~1.15:1 and effectively
+   invisible; this is a real 3:1+ outline in the same colour family. Plain
+   selectors (not :where) so this beats the various `outline: none` field
+   resets on their own specificity. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+.sidebar button:focus-visible,
+.sidebar a:focus-visible {
+  outline-color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 .app {
@@ -379,7 +419,16 @@ button {
   padding: 0 12px 8px;
   overflow: auto;
   flex: 0 1 auto;
-  max-height: 42%;
+  /* Was a hard 42% of the panel — it starved the contact list to ~5 rows
+     on a laptop. Cap it low and let it scroll internally so the list, the
+     thing you work all day, gets the room. */
+  max-height: clamp(84px, 22vh, 200px);
+}
+
+@media (min-height: 1000px) {
+  .contact-views {
+    max-height: 26vh;
+  }
 }
 
 .contact-views-group {
@@ -392,7 +441,7 @@ button {
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--light);
+  color: var(--text-quiet);
 }
 
 .view-row {
@@ -422,11 +471,11 @@ button {
 
 .view-row span {
   font-size: 0.7rem;
-  color: var(--pink);
+  color: var(--pink-text);
 }
 
 .view-row-due {
-  color: var(--pink);
+  color: var(--pink-text);
 }
 
 .view-add {
@@ -435,7 +484,8 @@ button {
   gap: 4px;
   margin: 2px 8px 0;
   padding: 4px 0;
-  color: var(--turquoise-deep);
+  min-height: 24px;
+  color: var(--turquoise-text);
   font-size: 0.72rem;
   font-weight: 600;
 }
@@ -510,7 +560,7 @@ button {
 .followup-date:focus {
   outline: none;
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(0, 188, 212, 0.15);
+  box-shadow: 0 0 0 3px rgba(0, 151, 167, 0.5);
 }
 
 .tabs {
@@ -568,7 +618,7 @@ button {
 
 .search:focus {
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(0, 188, 212, 0.15);
+  box-shadow: 0 0 0 3px rgba(0, 151, 167, 0.5);
 }
 
 .search-wrap svg {
@@ -587,6 +637,29 @@ button {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/* Shown above the results while the search box has text — makes it clear
+   the list is no longer scoped to the current brand/filter tab. */
+.list-search-scope {
+  padding: 4px 12px 6px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-quiet);
+}
+
+/* Per-row brand tag, only while searching across brands. */
+.row-brand-chip {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(0, 188, 212, 0.12);
+  color: var(--turquoise-text);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  vertical-align: 1px;
 }
 
 .call-row,
@@ -656,13 +729,13 @@ button {
 .call-phone {
   font-weight: 600;
   font-size: 0.86rem;
-  color: var(--turquoise-deep);
+  color: var(--turquoise-text);
 }
 
 .call-meta,
 .call-when {
   font-size: 0.7rem;
-  color: var(--light);
+  color: var(--text-quiet);
 }
 
 .call-status {
@@ -672,7 +745,7 @@ button {
 }
 
 .call-status.missed {
-  color: #e83e8c;
+  color: var(--pink-text);
   font-weight: 600;
 }
 
@@ -993,9 +1066,12 @@ button {
 .link-btn {
   font-size: 0.7rem;
   font-weight: 600;
-  color: var(--turquoise-deep);
+  color: var(--turquoise-text);
   text-decoration: underline;
-  padding: 0;
+  padding: 4px 0;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
 }
 .link-btn:disabled {
   opacity: 0.5;
@@ -1050,7 +1126,7 @@ button {
 }
 
 .notes-box:focus {
-  box-shadow: 0 0 0 3px rgba(0, 188, 212, 0.15);
+  box-shadow: 0 0 0 3px rgba(0, 151, 167, 0.5);
   background: #fff;
 }
 
@@ -1182,7 +1258,7 @@ button {
 .email-form input:focus,
 .email-form textarea:focus {
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(0, 188, 212, 0.15);
+  box-shadow: 0 0 0 3px rgba(0, 151, 167, 0.5);
 }
 
 .email-form textarea {
@@ -1393,7 +1469,7 @@ button {
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-  color: var(--light);
+  color: var(--text-quiet);
 }
 
 .deal-hint {
@@ -1490,7 +1566,7 @@ button {
 
 .deal-fields input:focus {
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(0, 188, 212, 0.15);
+  box-shadow: 0 0 0 3px rgba(0, 151, 167, 0.5);
 }
 
 .deal-notes {
@@ -1801,9 +1877,12 @@ button {
   font-size: 0.62rem;
   font-weight: 600;
   padding: 4px 7px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
   border-radius: 999px;
   background: rgba(20, 20, 20, 0.04);
-  color: var(--light);
+  color: var(--text-quiet);
 }
 
 .mini-stage.active {
@@ -1816,7 +1895,7 @@ button {
   padding: 18px 8px;
   text-align: center;
   font-size: 0.76rem;
-  color: var(--light);
+  color: var(--text-quiet);
 }
 
 .pipeline-inline {
@@ -1909,6 +1988,8 @@ button {
   cursor: pointer;
   text-decoration: underline;
   flex-shrink: 0;
+  min-height: 24px;
+  padding: 0 2px;
 }
 
 .lists-view {
@@ -1941,7 +2022,7 @@ button {
 
 .stat .label {
   font-size: 0.7rem;
-  color: var(--light);
+  color: var(--text-quiet);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -1982,7 +2063,7 @@ button {
 }
 
 .dialer-list-item span:last-child {
-  color: var(--light);
+  color: var(--text-quiet);
   font-weight: 500;
   margin-left: auto;
   font-size: 0.78rem;
@@ -1990,14 +2071,14 @@ button {
 
 .create-list {
   margin-top: 8px;
-  color: var(--turquoise-deep);
+  color: var(--turquoise-text);
   font-weight: 600;
   font-size: 0.84rem;
   padding: 10px 8px;
 }
 
 .muted {
-  color: var(--light);
+  color: var(--text-quiet);
   font-size: 0.8rem;
 }
 
@@ -2050,7 +2131,7 @@ button {
 
 .feedback-chip span {
   font-size: 0.7rem;
-  color: var(--light);
+  color: var(--text-quiet);
 }
 
 .feedback-chip p {
@@ -2063,6 +2144,58 @@ button {
 .coaching-file-list {
   display: grid;
   gap: 10px;
+}
+
+/* Desktop (laptop and up): the app was laid out phone-first inside a
+   desktop shell. These rules only tighten density and reclaim wasted
+   width above 1100px — bubble geometry, colours, radii unchanged, and
+   nothing here touches the tablet/phone layout below. */
+@media (min-width: 1101px) {
+  /* Denser contact list — ~64px rows down to ~46px, so a laptop shows
+     far more contacts. Still well above the 24px target min. */
+  .list {
+    gap: 2px;
+    padding: 2px 10px 12px;
+  }
+  .list-row-contact {
+    padding: 1px;
+  }
+  .list-row-select {
+    padding: 4px 8px;
+  }
+  .list-row-select .call-phone {
+    line-height: 1.25;
+  }
+  .list-row-select .call-meta {
+    line-height: 1.2;
+  }
+
+  /* The delete icon stops shouting — hidden until you hover or keyboard
+     into the row, so 200 trash cans aren't on screen at once. */
+  .list-row-delete {
+    opacity: 0;
+    transition: opacity 0.12s ease;
+  }
+  .list-row-contact:hover .list-row-delete,
+  .list-row-contact:focus-within .list-row-delete {
+    opacity: 1;
+  }
+
+  /* Screens that rendered a narrow strip in a wide pane now use the width. */
+  .dialer-list {
+    max-width: none;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  }
+  .reports-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+}
+
+@media (hover: none) and (min-width: 1101px) {
+  /* Touch laptop / 2-in-1 — no hover, so keep the delete icon visible. */
+  .list-row-delete {
+    opacity: 1;
+  }
 }
 
 @media (max-width: 1100px) {
@@ -2154,7 +2287,7 @@ button {
 }
 
 .auth-error {
-  color: var(--pink);
+  color: var(--pink-text);
   font-size: 0.76rem;
   font-weight: 500;
   text-align: left;
@@ -2171,4 +2304,546 @@ button {
   font-size: 0.76rem;
   color: var(--mid);
   text-decoration: underline;
+}
+
+/* ---------------------------------------------------------------------------
+   Boards — personal Kanban (BoardsScreen). ADDITIVE ONLY.
+   Every selector below is new and scoped under .boards-view or a board-*
+   class; nothing above this comment is touched, per AGENTS.md.
+
+   Type sits a step larger than the dialer screens: a board is read at a glance
+   rather than leaned into. Figures use tabular-nums instead of a mono face, so
+   the app still ships one font.
+   --------------------------------------------------------------------------- */
+.boards-view {
+  --accent: var(--turquoise-text);
+  --accent-wash: #eef8fa;
+}
+.boards-view.accent-turquoise { --accent: var(--turquoise-text); --accent-wash: #eef8fa; }
+.boards-view.accent-purple    { --accent: #54417f;              --accent-wash: #f4f0f9; }
+.boards-view.accent-pink      { --accent: var(--pink-text);     --accent-wash: #fdf0f6; }
+.boards-view.accent-amber     { --accent: #7d4e00;              --accent-wash: #faf3e6; }
+.boards-view.accent-ink       { --accent: var(--ink);           --accent-wash: #f6f3ed; }
+
+.boards-view .board-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  display: inline-block;
+  margin-right: 6px;
+  background: var(--ink);
+}
+.boards-view .board-swatch.accent-turquoise { background: var(--turquoise-text); }
+.boards-view .board-swatch.accent-purple    { background: #54417f; }
+.boards-view .board-swatch.accent-pink      { background: var(--pink-text); }
+.boards-view .board-swatch.accent-amber     { background: #7d4e00; }
+.boards-view .board-swatch.accent-ink       { background: var(--ink); }
+
+.boards-view .board-count {
+  font-size: 0.75rem;
+  color: var(--text-quiet);
+  font-variant-numeric: tabular-nums;
+  margin-left: 6px;
+}
+.boards-view .tab.active .board-count { color: inherit; opacity: 0.75; }
+
+.boards-view .board-empty-state {
+  margin: 20px 0;
+  padding: 22px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  color: var(--mid);
+  font-size: 0.95rem;
+}
+
+/* ---- toolbar ---- */
+.boards-view .board-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 14px 0 4px;
+}
+.boards-view .board-search {
+  flex: 1 1 190px;
+  max-width: 300px;
+  padding: 9px 15px;
+  border: 1px solid var(--cream-deep);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.875rem;
+}
+.boards-view .board-filters { display: flex; gap: 5px; flex-wrap: wrap; }
+.boards-view .board-filters .chip {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--cream-deep);
+  background: var(--surface);
+  color: var(--mid);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.boards-view .board-filters .chip:hover { background: var(--surface-soft); color: var(--ink); }
+.boards-view .board-filters .chip.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+.boards-view .link-btn.danger,
+.board-modal .link-btn.danger { color: var(--pink-text); }
+
+/* ---- summary tiles ---- */
+.boards-view .board-summary {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin: 16px 0 6px;
+  padding: 18px 22px;
+  background: var(--accent-wash);
+  border-radius: var(--radius);
+}
+.boards-view .board-tile { display: flex; flex-direction: column; gap: 1px; }
+.boards-view .board-tile .k {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-quiet);
+  font-weight: 600;
+}
+.boards-view .board-tile .v {
+  font-size: 1.45rem;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.boards-view .board-tile .sub { font-size: 0.8125rem; color: var(--mid); }
+.boards-view .board-tile.urgent .v { color: var(--pink-text); }
+
+/* ---- the board itself ---- */
+.boards-view .board-canvas {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  overflow-x: auto;
+  padding: 16px 0 8px;
+}
+.boards-view .board-list {
+  flex: 0 0 292px;
+  display: flex;
+  flex-direction: column;
+  background: var(--cream);
+  border: 1px solid var(--cream-deep);
+  border-radius: 18px;
+}
+.boards-view .board-list.dropping {
+  border-color: var(--turquoise-deep);
+  box-shadow: 0 0 0 3px rgba(0, 188, 212, 0.18);
+}
+.boards-view .board-list-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 8px;
+}
+.boards-view .board-dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
+.boards-view .board-list-head h3 {
+  margin: 0;
+  flex: 1;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.boards-view .board-list-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 8px 8px;
+  min-height: 8px;
+}
+.boards-view .board-list-empty {
+  margin: 0;
+  padding: 12px;
+  text-align: center;
+  color: var(--text-quiet);
+  font-size: 0.8125rem;
+}
+
+.boards-view .board-card {
+  background: var(--surface);
+  border: 1px solid var(--cream-deep);
+  border-radius: 13px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  cursor: grab;
+  box-shadow: var(--shadow-soft);
+}
+.boards-view .board-card:hover { border-color: var(--light); }
+.boards-view .board-card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.boards-view .board-labels { display: flex; gap: 4px; flex-wrap: wrap; }
+.boards-view .board-labels span { width: 34px; height: 7px; border-radius: 999px; }
+.boards-view .board-card h4 {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.boards-view .board-card-org { font-size: 0.8125rem; color: var(--mid); }
+.boards-view .board-card-money {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--pink-text);
+  font-variant-numeric: tabular-nums;
+}
+.boards-view .board-badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.boards-view .board-pill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.boards-view .board-pill.ok   { background: #e2f5f8; color: var(--turquoise-text); }
+.boards-view .board-pill.warn { background: #f7ecd6; color: #7d4e00; }
+.boards-view .board-pill.bad  { background: #fbe3df; color: #b02218; }
+.boards-view .board-pill.mute { background: var(--cream-deep); color: var(--text-quiet); }
+
+.boards-view .board-movers { display: flex; gap: 3px; margin-left: auto; }
+.boards-view .board-movers .mover {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cream-deep);
+  background: var(--surface);
+  border-radius: 8px;
+  color: var(--mid);
+  cursor: pointer;
+}
+.boards-view .board-movers .mover:hover:not(:disabled) { background: var(--surface-soft); color: var(--ink); }
+.boards-view .board-movers .mover:disabled { opacity: 0.3; cursor: default; }
+
+.boards-view .board-add-card {
+  margin: 0 8px 8px;
+  padding: 9px 12px;
+  text-align: left;
+  border: 1px dashed var(--cream-deep);
+  background: transparent;
+  border-radius: 11px;
+  color: var(--mid);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.boards-view .board-add-card:hover { background: var(--surface); border-style: solid; color: var(--ink); }
+.boards-view .board-add-list {
+  flex: 0 0 218px;
+  padding: 14px;
+  border: 1px dashed var(--cream-deep);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--mid);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.boards-view .board-add-list:hover { background: var(--surface); color: var(--ink); }
+
+/* ---- reminder queue ---- */
+.boards-view .board-reminders {
+  margin-top: 14px;
+  padding: 20px 22px;
+  background: var(--surface-soft);
+  border-radius: var(--radius);
+}
+.boards-view .board-reminders h3 { margin: 0 0 2px; font-size: 1rem; font-weight: 600; }
+.boards-view .board-reminders .muted { margin: 0 0 12px; font-size: 0.8125rem; max-width: 70ch; }
+.boards-view .board-reminders-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.boards-view .board-reminders-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: var(--surface);
+  border-radius: 11px;
+}
+.boards-view .board-reminders-list .when {
+  min-width: 82px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--pink-text);
+  font-variant-numeric: tabular-nums;
+}
+.boards-view .board-reminders-list .what { font-size: 0.875rem; font-weight: 600; }
+.boards-view .board-reminders-list .who { font-size: 0.8125rem; color: var(--mid); }
+.boards-view .board-reminders-none {
+  margin: 0;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px dashed var(--cream-deep);
+  border-radius: 11px;
+  color: var(--mid);
+  font-size: 0.8125rem;
+}
+
+/* ---- modals ---- */
+.board-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 26, 26, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 60;
+}
+.board-modal {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  width: min(540px, 100%);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  padding: 22px;
+}
+.board-modal h3 { margin: 0 0 14px; font-size: 1.1rem; font-weight: 600; }
+.board-modal .board-fields { display: grid; gap: 12px; overflow-y: auto; padding-right: 4px; }
+.board-modal .board-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-quiet);
+  font-weight: 600;
+}
+.board-modal .board-field-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-quiet);
+  font-weight: 600;
+}
+.board-modal .board-fields input,
+.board-modal .board-fields select,
+.board-modal .board-fields textarea {
+  padding: 10px 12px;
+  border: 1px solid var(--cream-deep);
+  border-radius: 11px;
+  background: var(--surface-soft);
+  font-size: 0.875rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ink);
+  width: 100%;
+}
+.board-modal .board-fields textarea { min-height: 78px; resize: vertical; line-height: 1.5; }
+.board-modal .board-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.board-modal .board-swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+.board-modal .board-swatches button {
+  width: 38px;
+  height: 26px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+.board-modal .board-swatches button.picked { border-color: var(--ink); }
+.board-modal .board-modal-foot { display: flex; align-items: center; gap: 10px; padding-top: 16px; }
+.board-modal .board-modal-foot .spacer { flex: 1; }
+
+/* Shared label palette: card labels, list dots, and the pickers. */
+.boards-view .label-turquoise,
+.board-modal .label-turquoise { background: var(--turquoise); }
+.boards-view .label-purple,
+.board-modal .label-purple { background: var(--purple); }
+.boards-view .label-pink,
+.board-modal .label-pink { background: var(--pink); }
+.boards-view .label-amber,
+.board-modal .label-amber { background: #d29a2b; }
+.boards-view .label-red,
+.board-modal .label-red { background: #bf2519; }
+.boards-view .label-slate,
+.board-modal .label-slate { background: #8d8577; }
+.board-modal .accent-swatch.accent-turquoise { background: var(--turquoise-text); }
+.board-modal .accent-swatch.accent-purple    { background: #54417f; }
+.board-modal .accent-swatch.accent-pink      { background: var(--pink-text); }
+.board-modal .accent-swatch.accent-amber     { background: #7d4e00; }
+.board-modal .accent-swatch.accent-ink       { background: var(--ink); }
+
+@media (max-width: 720px) {
+  .board-modal .board-pair { grid-template-columns: 1fr; }
+  .boards-view .board-list { flex-basis: 84vw; }
+}
+
+/* ---------------------------------------------------------------------------
+   Guided call script (dialer)
+
+   Built the way call-centre agent scripts are: you are on exactly one step,
+   the line you say is the biggest thing on screen, and the only decision is
+   "what did they say". Two registers, and they must look different:
+     .cf-say  = out loud, word for word. Big, dark, on a panel.
+     .cf-do   = note to yourself. Small, grey, never spoken.
+--------------------------------------------------------------------------- */
+
+.cf-trail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.cf-crumb {
+  border: none;
+  background: none;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-quiet);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.cf-crumb:not(.now):hover {
+  background: rgba(20, 20, 20, 0.05);
+  color: var(--ink);
+}
+
+.cf-crumb.now {
+  background: var(--gradient-soft);
+  color: #fff;
+  cursor: default;
+}
+
+.cf-crumb + .cf-crumb::before {
+  content: '›';
+  margin-right: 8px;
+  color: var(--light);
+  font-weight: 400;
+}
+
+.cf-restart {
+  margin-left: auto;
+  border: none;
+  background: none;
+  padding: 4px 8px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--turquoise-text);
+  text-decoration: underline;
+}
+
+/* Note to self. Deliberately quiet so it can never be mistaken for a line. */
+.cf-do {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-quiet);
+}
+
+/* The words you say. The biggest thing in the card, on purpose. */
+.cf-say {
+  background: var(--surface-soft);
+  border-left: 4px solid var(--turquoise);
+  border-radius: 8px 18px 18px 8px;
+  padding: 18px 20px;
+  font-size: 1.08rem;
+  line-height: 1.6;
+  color: var(--ink);
+  white-space: pre-wrap;
+  text-wrap: pretty;
+}
+
+.cf-then {
+  margin: 10px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  font-weight: 600;
+  color: var(--pink-text);
+}
+
+.cf-prompt {
+  margin: 18px 0 8px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--light);
+}
+
+.cf-choices {
+  display: grid;
+  gap: 8px;
+}
+
+.cf-choice {
+  width: 100%;
+  text-align: left;
+  padding: 13px 16px;
+  border: 1.5px solid rgba(20, 20, 20, 0.08);
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.12s ease;
+}
+
+.cf-choice:hover {
+  transform: translateY(-1px);
+  background: var(--surface-soft);
+}
+
+.cf-choice.go {
+  border-color: rgba(0, 188, 212, 0.45);
+}
+
+.cf-choice.go:hover {
+  border-color: var(--turquoise-deep);
+  background: rgba(0, 188, 212, 0.08);
+}
+
+.cf-choice.stop {
+  border-color: rgba(232, 62, 140, 0.35);
+  color: var(--pink-text);
+}
+
+.cf-choice.stop:hover {
+  border-color: var(--pink);
+  background: rgba(232, 62, 140, 0.07);
+}
+
+.cf-done {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(0, 188, 212, 0.1);
+  font-size: 0.86rem;
+  color: var(--ink);
+}
+
+/* Numbers you must never have to hunt for mid-call. */
+.cf-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(20, 20, 20, 0.07);
+  font-size: 0.72rem;
+  color: var(--text-quiet);
+}
+
+.cf-facts b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.cf-facts b::after {
+  content: ' ·';
+  color: var(--light);
+  font-weight: 400;
 }

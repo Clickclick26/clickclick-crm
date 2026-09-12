@@ -9,4 +9,7 @@ export default defineConfig({
   // project URL (clickclick26.github.io/clickclick-crm/, served from a
   // subpath) — no more juggling two different base paths per deploy target.
   base: './',
+  // Honour PORT when the harness/preview assigns one; plain `npm run dev`
+  // still lands on Vite's usual 5173. Dev server only — no build impact.
+  server: { port: Number(process.env.PORT) || 5173 },
 })
