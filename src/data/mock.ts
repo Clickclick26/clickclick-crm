@@ -4,6 +4,7 @@ export type CallStatus = 'missed' | 'inbound' | 'outbound'
 export type PipelineStage = 'new' | 'talking' | 'proposal' | 'won' | 'lost'
 export type CallOutcome =
   | 'sold'
+  | 'meeting_booked'
   | 'callback'
   | 'no_answer'
   | 'not_interested'
@@ -126,8 +127,12 @@ export type CallFeedback = {
 
 export type Objection = {
   id: string
+  /** What they said, in their words. This is what you scan for mid-call. */
   label: string
+  /** Word for word. Said out loud. */
   reply: string
+  /** Note to yourself about delivery. Never said out loud. */
+  then?: string
 }
 
 export type ScriptBlock = {
@@ -475,12 +480,10 @@ export const SEED_CALL_FEEDBACK: CallFeedback[] = [
 
 export const SCRIPT: ScriptBlock = {
   id: 's1',
-  title: 'Opener · Live Commerce',
-  body: `Hi {{name}}, this is {{agent}} from ClickClick.
+  title: 'Opener · cold call',
+  body: `Hi {{name}}, it's {{agent}} from ClickClick.
 
-We help brands turn video into sales — live shopping, social listening, and creator campaigns.
-
-I saw {{company}} is growing online. Got 60 seconds for why teams book a demo with us?`,
+You weren't expecting me. Can I have thirty seconds, and then you can tell me to go?`,
 }
 
 export type ContractTemplate = {
@@ -611,33 +614,57 @@ Signed electronically.`,
 export const OBJECTIONS: Objection[] = [
   {
     id: 'o1',
-    label: 'Too expensive',
+    label: 'How much?',
     reply:
-      'Totally fair. Most clients start on a smaller plan and expand once they see one live that pays for itself. Want me to walk through a starter option vs the full stack?',
+      'List is £1,450 a month. The first five brands pay £725, half price, locked for a year. In return I need a case study with real numbers and permission to use your name.',
+    then: 'Say the number and stop. Do not justify it.',
   },
   {
     id: 'o2',
-    label: 'Already have agency',
+    label: '£8,700 is a lot',
     reply:
-      'Great — we often sit beside agencies. We supply the software + playbooks; they keep creative. Happy to show a split that doesn’t replace them.',
+      'It is. Half on signature and half when you are live is fine too. What I need in return is the case study.',
   },
   {
     id: 'o3',
-    label: 'No time / later',
+    label: 'Why not TikTok, it is free',
     reply:
-      'Understood. When is a better slot this week — morning or afternoon? I’ll send a calendar hold and a 2-min Loom so it’s easy to prep.',
+      "If your customers are on TikTok, use it. It's free and it's good, and I'd rather tell you that than sell you something you don't need.\n\nWe're for selling on your own site and on Instagram, where there's nothing. Meta shut their live shopping tools down, so right now most brands can only put a link in the bio and hope.\n\nAnd TikTok's tool only does TikTok. Ours runs the same show on your site, YouTube and Meta at once, so you're not betting Christmas on one platform. It also doesn't stop the show falling over. That's the bit we do.",
+    then: 'Long one. Slow down, do not rush it.',
   },
   {
     id: 'o4',
-    label: 'Send info first',
+    label: 'We tried a live, nobody watched',
     reply:
-      'Happy to. I’ll email a one-pager + short case study now via Lark. While I have you — what’s the one metric you care about most: views, conversion, or ROAS?',
+      "That's most people's first one. What went wrong, getting people there or the hour itself?",
+    then: 'Let them answer. Then: both of those are fixable, and neither of them is you being bad at this.',
   },
   {
     id: 'o5',
-    label: 'Competitor quote',
+    label: 'Send me some information',
     reply:
-      'Makes sense to compare. Where we usually win is human-level video context + live commerce in one place — not just keyword dumps. Want a side-by-side on that?',
+      "I will, tonight. Quick thing first so I send the right one: is this a Christmas thing or a next year thing?",
+    then: 'Never just agree to send information. Get the answer first.',
+  },
+  {
+    id: 'o6',
+    label: 'I need to ask my boss',
+    reply:
+      "Course. What will they want to know? I'll put it in the email so you're not defending it on your own.",
+  },
+  {
+    id: 'o7',
+    label: 'We already have an agency',
+    reply:
+      "Good, keep them. They do the creative. We're the software underneath that stops the show falling over and lets you sell on your own site at the same time. It sits beside an agency, it doesn't replace one.",
+    then: 'Do not rubbish the agency. Ever.',
+  },
+  {
+    id: 'o8',
+    label: 'Not this year',
+    reply:
+      "Fine. Can I come back in January? And who else should I be talking to?",
+    then: 'Then go to the Referral step and get the names.',
   },
 ]
 
@@ -813,6 +840,7 @@ export const STAGE_LABEL: Record<PipelineStage, string> = {
 
 export const OUTCOME_LABEL: Record<CallOutcome, string> = {
   sold: 'Sold',
+  meeting_booked: 'Meeting booked',
   callback: 'Callback',
   no_answer: 'No answer',
   not_interested: 'Not interested',

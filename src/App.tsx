@@ -5,8 +5,19 @@ import { GeminiSpark } from './components/GeminiSpark'
 import { ListsScreen } from './components/screens/ListsScreen'
 import { ReportsScreen } from './components/screens/ReportsScreen'
 import { PipelineScreen } from './components/screens/PipelineScreen'
+import { BoardsScreen } from './components/screens/BoardsScreen'
 import { NewContactForm, type NewContactDraft } from './components/contacts/NewContactForm'
 import { ContactViews } from './components/contacts/ContactViews'
+import { supabase } from './lib/supabase/client'
+import {
+  connectTelnyx,
+  disconnectTelnyx,
+  hangupTelnyxCall,
+  isTelnyxConfigured,
+  placeTelnyxCall,
+  setTelnyxMuted,
+  toE164,
+} from './lib/telnyx/client'
 
 // Vite ESM interop: default export is often `{ default: Component }`.
 const Lottie =
@@ -35,6 +46,7 @@ import {
   CreditCard,
   Landmark,
   Columns3,
+  KanbanSquare,
   Play,
   VolumeX,
   Video,
@@ -84,6 +96,7 @@ import {
   type PayType,
   type PipelineStage,
 } from './data/mock'
+import { CALL_FACTS, FLOW_START, flowStep } from './data/callflow'
 import { fetchAgents } from './lib/supabase/agents'
 import { parseContactCsv } from './lib/csv'
 import { parseInstagramBlock } from './lib/instagram'
@@ -157,6 +170,7 @@ type NavId =
   | 'contacts'
   | 'pipeline'
   | 'lists'
+  | 'boards'
   | 'reports'
   | 'settings'
 
@@ -166,6 +180,7 @@ const NAV_IDS: NavId[] = [
   'contacts',
   'pipeline',
   'lists',
+  'boards',
   'reports',
   'settings',
 ]
@@ -362,7 +377,31 @@ export default function App({
   const [muted, setMuted] = useState(false)
   const [recording, setRecording] = useState(false)
   const [listeningIn, setListeningIn] = useState(false)
+
+  // Open the Telnyx WebSocket once, if credentials exist. With no token this is
+  // a no-op and the dialer keeps using the simulated call path in startCall().
+  useEffect(() => {
+    if (!isTelnyxConfigured()) return
+    connectTelnyx((state) => {
+      // Far end hung up, or the call failed to set up — bring the UI back in
+      // step, otherwise the hero stays stuck showing an active call.
+      if (state === 'hangup') {
+        setOnCall(false)
+        setRecording(false)
+        setMuted(false)
+      }
+    })
+    return () => disconnectTelnyx()
+  }, [])
+
+  // Mirror the mute toggle onto the live call. No-op while simulating or idle.
+  useEffect(() => {
+    setTelnyxMuted(muted)
+  }, [muted])
   const [outcome, setOutcome] = useState<CallOutcome | null>(null)
+  // Where you are in the guided call script. Last entry is the current step;
+  // the rest is the trail, so "back" is just dropping the tail.
+  const [flowPath, setFlowPath] = useState<string[]>([FLOW_START])
   const [toast, setToast] = useState<{
     message: string
     action?: { label: string; onClick: () => void }
@@ -1255,13 +1294,34 @@ export default function App({
 
   const dealTrack = dealChecklist(dealStatus, payType)
 
-  const scriptText = useMemo(() => {
-    if (activeObjection) {
-      const obj = OBJECTIONS.find((o) => o.id === activeObjection)
-      return obj?.reply ?? ''
+  const flowCurrent = flowStep(flowPath[flowPath.length - 1])
+  const activeRebuttal = activeObjection
+    ? (OBJECTIONS.find((o) => o.id === activeObjection) ?? null)
+    : null
+
+  const sayText = useMemo(() => {
+    const template = flowCurrent.useScript ? activeScript.body : (flowCurrent.say ?? '')
+    return template ? fillScript(template, contact, currentAgent.name) : ''
+  }, [flowCurrent, activeScript.body, contact, currentAgent.name])
+
+  /**
+   * Move to the next step. Landing on a step that ends the call disposes it
+   * here, so the outcome is never a second thing to remember. Nothing advances
+   * on its own, so this only ever runs off a button press.
+   */
+  function goToStep(id: string) {
+    const next = flowStep(id)
+    setActiveObjection(null)
+    setFlowPath((path) => [...path, id])
+    if (next.outcome) {
+      setOutcome(next.outcome)
+      showToast(
+        next.outcome === 'do_not_call'
+          ? 'Marked Do Not Call — dialer will block.'
+          : `Call marked ${OUTCOME_LABEL[next.outcome]}.`,
+      )
     }
-    return fillScript(activeScript.body, contact, currentAgent.name)
-  }, [activeObjection, activeScript.body, contact])
+  }
 
   const selectedTemplate =
     contractTemplates.find((t) => t.id === selectedTemplateId) ?? contractTemplates[0]
@@ -1432,6 +1492,7 @@ export default function App({
       )
     }
     setActiveObjection(null)
+    setFlowPath([FLOW_START])
     setOutcome(call.outcome ?? null)
     setFeedbackDraft('')
     setPlayingCallId(null)
@@ -1453,6 +1514,7 @@ export default function App({
       `Hi ${person.name.split(' ')[0]},\n\nGreat speaking — here’s a short follow-up from ClickClick.\n\nBest,\n${currentAgent.name}`,
     )
     setActiveObjection(null)
+    setFlowPath([FLOW_START])
     const related = CALLS.find((c) => c.contactId === person.id)
     if (related) {
       setSelectedCallId(related.id)
@@ -1483,6 +1545,29 @@ export default function App({
       startLarkVideo()
       return
     }
+    // Real call when Telnyx credentials are present; otherwise fall through to
+    // the simulated call so the dialer still demos without an account. The Do
+    // Not Call and TPS/CTPS gates above have both already passed by here — no
+    // dial can happen before them.
+    if (isTelnyxConfigured()) {
+      const destination = toE164(contact.phone)
+      if (!destination) {
+        showToast(`Can’t dial “${contact.phone}” — not a recognisable phone number.`)
+        return
+      }
+      try {
+        placeTelnyxCall({
+          destinationNumber: destination,
+          callerNumber: fromPick.number.e164,
+          callerName: currentAgent.name,
+        })
+      } catch (err) {
+        showToast(
+          err instanceof Error ? `Couldn’t start call: ${err.message}` : 'Couldn’t start call',
+        )
+        return
+      }
+    }
     setOnCall(true)
     setRecording(true) // always on — every call is recorded
     setMuted(false)
@@ -1492,20 +1577,62 @@ export default function App({
     )
   }
 
-  async function startLarkVideo() {
-    setOnCall(true)
-    setRecording(true)
-    setActiveObjection(null)
-    showToast('Setting up Lark video…')
+  function openLarkVideoWindow(url: string) {
+    // Not a true embed — Lark doesn't let other sites embed its live meeting UI.
+    // A sized, named pop-out is the closest thing to "the call happens in the
+    // platform": same click, no tab-hunting, and re-clicking focuses the same window
+    // instead of opening a second one (see the shared window name below).
+    const popup = window.open(
+      url,
+      'lark-video-call',
+      'width=1040,height=760,resizable=yes,scrollbars=yes,noopener,noreferrer',
+    )
+    if (!popup) {
+      showToast('Pop-up blocked — click "Open call window" below, or allow pop-ups for this site.')
+    }
+  }
+
+  async function scheduleLarkVideo() {
+    // For sending a link well ahead of the actual call — no live call starts,
+    // nothing pops up, just a link ready to email. Uses the same reservation
+    // as starting now; the edge function gives it a long validity window so
+    // it still works whenever the contact actually clicks it.
+    showToast('Creating video link…')
     try {
-      const joinUrl = await createLarkVideoInvite({
+      const { joinUrl } = await createLarkVideoInvite({
         contactName: contact.name,
         contactEmail: contact.email,
         agentName: currentAgent.name,
         brand: dealBrand === 'clocal' ? 'CLocal' : 'ClickClick',
       })
       setLarkMeetingUrl(joinUrl)
-      showToast(`Lark video ready · invite emailed to ${contact.name}`)
+      showToast('Video link ready — use Email link below to send it.')
+    } catch (err) {
+      showToast(
+        err instanceof Error ? `Couldn't create video link: ${err.message}` : "Couldn't create video link",
+      )
+    }
+  }
+
+  async function startLarkVideo() {
+    setOnCall(true)
+    setRecording(true)
+    setActiveObjection(null)
+    showToast('Setting up Lark video…')
+    try {
+      const { joinUrl, emailed } = await createLarkVideoInvite({
+        contactName: contact.name,
+        contactEmail: contact.email,
+        agentName: currentAgent.name,
+        brand: dealBrand === 'clocal' ? 'CLocal' : 'ClickClick',
+      })
+      setLarkMeetingUrl(joinUrl)
+      openLarkVideoWindow(joinUrl)
+      showToast(
+        emailed
+          ? `Lark video ready · invite emailed to ${contact.name}`
+          : 'Lark video ready · call window opened',
+      )
     } catch (err) {
       setOnCall(false)
       setRecording(false)
@@ -1516,6 +1643,7 @@ export default function App({
   }
 
   function endCall() {
+    hangupTelnyxCall() // no-op when simulating, or when the far end already hung up
     setOnCall(false)
     setMuted(false)
     setRecording(false)
@@ -1566,11 +1694,49 @@ export default function App({
     })
   }
 
+  // Safari (and some other browsers) silently drop the body of a mailto: link
+  // once the whole URL gets long — the compose window opens but comes up blank,
+  // no error shown. Most real messages are nowhere near that limit, so open the
+  // link with the body inline by default (fully automatic, nothing to paste).
+  // Only the rare oversized message needs the clipboard fallback — and even
+  // then, only the body; recipient + subject stay in the URL either way.
+  const MAILTO_SAFE_LENGTH = 1800
+  function openMailtoAuto(
+    to: string,
+    subject: string,
+    body: string,
+    cc?: string,
+  ): { pasted: boolean } {
+    const ccParam = cc ? `&cc=${encodeURIComponent(cc)}` : ''
+    const full = `mailto:${to}?subject=${encodeURIComponent(subject)}${ccParam}&body=${encodeURIComponent(body)}`
+    if (full.length <= MAILTO_SAFE_LENGTH) {
+      window.location.href = full
+      return { pasted: false }
+    }
+    void navigator.clipboard?.writeText(body)
+    window.location.href = `mailto:${to}?subject=${encodeURIComponent(subject)}${ccParam}`
+    return { pasted: true }
+  }
+
   function sendLarkEmail() {
-    const attachmentNote = emailAttachments.length
-      ? ` with ${emailAttachments.length} attachment${emailAttachments.length > 1 ? 's' : ''}`
-      : ''
-    showToast(`Email queued via Lark Mail API${attachmentNote} (connect keys later).`)
+    if (!contact.email) {
+      showToast('No email on file for this contact — add one first.')
+      return
+    }
+    const { pasted } = openMailtoAuto(contact.email, emailSubject, emailBody)
+    if (pasted) {
+      showToast(
+        emailAttachments.length
+          ? `Long message — copied instead. Press ⌘V to paste it in, then attach ${emailAttachments.length} file${emailAttachments.length > 1 ? 's' : ''} by hand.`
+          : 'Long message — copied instead. Press ⌘V in the email to paste it in.',
+      )
+    } else {
+      showToast(
+        emailAttachments.length
+          ? `Opening your email app — attach ${emailAttachments.length} file${emailAttachments.length > 1 ? 's' : ''} by hand, mail links can't do that part.`
+          : 'Opening your email app…',
+      )
+    }
     setEmailAttachments([])
   }
 
@@ -1593,7 +1759,7 @@ export default function App({
     setEmailBody(
       `Hi ${contact.name.split(' ')[0]},\n\nGreat chatting — here’s our ${kit.name.toLowerCase()} from ${brand}.\n\nHappy to walk through it on a quick call or Lark video whenever suits.\n\nBest,\n${currentAgent.name}`,
     )
-    showToast(`${kit.name} sent to ${contact.email} via Lark (mock)`)
+    showToast(`${kit.name} loaded below — review, then click Send email.`)
   }
 
   async function handleGenerateReferralCode() {
@@ -1680,6 +1846,7 @@ export default function App({
     { id: 'contacts', icon: Users, label: 'Contacts' },
     { id: 'pipeline', icon: Columns3, label: 'Pipeline' },
     { id: 'lists', icon: ListChecks, label: 'Lists' },
+    { id: 'boards', icon: KanbanSquare, label: 'Boards' },
     { id: 'reports', icon: BarChart3, label: 'Reports' },
   ]
 
@@ -2001,6 +2168,10 @@ export default function App({
               onSelectList={setActiveList}
               onToast={showToast}
             />
+          )}
+
+          {nav === 'boards' && (
+            <BoardsScreen agentId={currentAgent.id} onToast={showToast} />
           )}
 
           {nav === 'reports' && <ReportsScreen agents={agents} />}
@@ -2588,34 +2759,50 @@ export default function App({
                       ? 'Uses Lark’s live meeting — easy when they want face-to-face. Link can go by Lark email.'
                       : 'Uses your Telnyx numbers · auto local caller ID.'}
                   </p>
-                  {larkMeetingUrl && onCall && callChannel === 'lark_video' && (
+                  {callChannel === 'lark_video' && !larkMeetingUrl && (
+                    <button className="btn ghost" onClick={scheduleLarkVideo}>
+                      <Mail size={16} />
+                      Send invite for later — no call starts now
+                    </button>
+                  )}
+                  {larkMeetingUrl && callChannel === 'lark_video' && (
                     <div className="lark-meet-row">
                       <strong>Meeting link</strong>
                       <code>{larkMeetingUrl}</code>
                       <div className="btn-row">
                         <button
                           className="btn lark"
+                          onClick={() => openLarkVideoWindow(larkMeetingUrl)}
+                        >
+                          <Video size={16} />
+                          Open call window
+                        </button>
+                        <button
+                          className="btn lark"
                           onClick={async () => {
-                            showToast('Re-sending meeting link…')
-                            try {
-                              await createLarkVideoInvite({
-                                contactName: contact.name,
-                                contactEmail: contact.email,
-                                agentName: currentAgent.name,
-                                existingJoinUrl: larkMeetingUrl,
-                              })
-                              showToast(`Meeting link emailed to ${contact.name}`)
-                            } catch (err) {
-                              showToast(
-                                err instanceof Error
-                                  ? `Couldn't email link: ${err.message}`
-                                  : "Couldn't email link",
-                              )
+                            if (!contact.email) {
+                              showToast('No email on file for this contact — add one first, or use Copy link.')
+                              return
                             }
+                            const subject = `Video call link from ${currentAgent.name}`
+                            const body = `Hi ${contact.name.split(' ')[0]},\n\n${currentAgent.name} would like to set up a video call with you.\n\n${larkMeetingUrl}\n\nSee you there!`
+                            // CC the sender — so the link survives a refresh even though the
+                            // CRM only holds it in memory. Best-effort: if the session lookup
+                            // fails, the email still goes out, just without the CC.
+                            const { data } = await supabase.auth.getUser().catch(() => ({ data: null }))
+                            const selfEmail = data?.user?.email
+                            const { pasted } = openMailtoAuto(contact.email, subject, body, selfEmail)
+                            showToast(
+                              pasted
+                                ? 'Long message — copied instead. Press ⌘V in the email to paste it in.'
+                                : selfEmail
+                                  ? `Opening your email app — a copy will CC you at ${selfEmail}.`
+                                  : 'Opening your email app…',
+                            )
                           }}
                         >
                           <Mail size={16} />
-                          Email link again
+                          Email link
                         </button>
                         <button
                           className="btn ghost"
@@ -2707,13 +2894,88 @@ export default function App({
 
                 <div className="grid-2">
                   <div className="card">
-                    <div className="script-title">
-                      <h3 style={{ margin: 0 }}>
-                        {activeObjection ? 'Objection reply' : 'Script'}
-                      </h3>
-                      <span>{activeObjection ? 'Pop-up' : activeScript.title}</span>
+                    <div className="cf-trail">
+                      {flowPath.map((id, i) => (
+                        <button
+                          key={`${id}-${i}`}
+                          className={`cf-crumb ${i === flowPath.length - 1 ? 'now' : ''}`}
+                          onClick={() => {
+                            setActiveObjection(null)
+                            setFlowPath(flowPath.slice(0, i + 1))
+                          }}
+                        >
+                          {flowStep(id).stage}
+                        </button>
+                      ))}
+                      {flowPath.length > 1 && (
+                        <button
+                          className="cf-restart"
+                          onClick={() => {
+                            setActiveObjection(null)
+                            setFlowPath([FLOW_START])
+                          }}
+                        >
+                          Start again
+                        </button>
+                      )}
                     </div>
-                    <div className="script-box">{scriptText}</div>
+
+                    {activeRebuttal ? (
+                      <>
+                        <p className="cf-do">They said: {activeRebuttal.label}</p>
+                        <div className="cf-say">{activeRebuttal.reply}</div>
+                        {activeRebuttal.then && (
+                          <p className="cf-then">{activeRebuttal.then}</p>
+                        )}
+                        <button
+                          className="cf-choice go"
+                          onClick={() => setActiveObjection(null)}
+                        >
+                          Back to {flowCurrent.stage}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {flowCurrent.do && <p className="cf-do">{flowCurrent.do}</p>}
+                        {sayText && <div className="cf-say">{sayText}</div>}
+                        {flowCurrent.then && <p className="cf-then">{flowCurrent.then}</p>}
+
+                        {flowCurrent.choices.length > 0 ? (
+                          <>
+                            <p className="cf-prompt">What did they say?</p>
+                            <div className="cf-choices">
+                              {flowCurrent.choices.map((choice) => (
+                                <button
+                                  key={`${choice.to}-${choice.label}`}
+                                  className={`cf-choice ${choice.tone ?? 'soft'}`}
+                                  onClick={() => goToStep(choice.to)}
+                                >
+                                  {choice.label}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="cf-done">
+                            Call finished. Marked{' '}
+                            <strong>
+                              {flowCurrent.outcome ? OUTCOME_LABEL[flowCurrent.outcome] : '—'}
+                            </strong>
+                            .
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    <div className="cf-facts">
+                      {CALL_FACTS.map((fact) => (
+                        <span key={fact.label}>
+                          <b>{fact.label}</b> {fact.value}
+                        </span>
+                      ))}
+                    </div>
+
+                    <p className="cf-prompt">They pushed back</p>
                     <div className="objection-row">
                       {OBJECTIONS.map((obj) => (
                         <button
@@ -3446,7 +3708,7 @@ export default function App({
                       <div className="btn-row">
                         <button className="btn lark" onClick={sendLarkEmail}>
                           <Mail size={16} />
-                          Send with Lark
+                          Send email
                         </button>
                         <button
                           className="btn ghost"
