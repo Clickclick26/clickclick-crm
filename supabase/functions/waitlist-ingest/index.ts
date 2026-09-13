@@ -34,6 +34,8 @@ type Body = {
   postcode?: unknown;
   roles?: unknown;
   newsletter?: unknown;
+  /** utm_* tags the landing page captured on arrival. */
+  utm?: unknown;
   _honey?: unknown;
 };
 
@@ -109,6 +111,40 @@ function inferRegion(postcode: string): string {
   if (out.startsWith("BT7") || out.startsWith("BT9")) return "south-belfast";
   if (out.startsWith("BT")) return "belfast";
   return "other";
+}
+
+/**
+ * The landing page has always sent these; this function used to drop them, so
+ * every contact looked identical whether they came from a paid reel, a
+ * Facebook group or straight to the site. Only the five standard keys are
+ * kept, trimmed and length-capped, because this lands in the CRM as text.
+ */
+const UTM_KEYS = [
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_content",
+  "utm_term",
+] as const;
+
+function parseUtm(v: unknown): Record<string, string> {
+  if (!v || typeof v !== "object") return {};
+  const src = v as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const key of UTM_KEYS) {
+    const value = asString(src[key]).slice(0, 120);
+    if (value) out[key] = value;
+  }
+  return out;
+}
+
+/** "reel-three-miles via facebook / paid_social" — readable in a CRM note. */
+function describeUtm(utm: Record<string, string>): string {
+  if (!Object.keys(utm).length) return "";
+  const what = utm.utm_content || utm.utm_campaign || "";
+  const where = [utm.utm_source, utm.utm_medium].filter(Boolean).join(" / ");
+  if (what && where) return `${what} via ${where}`;
+  return what || where;
 }
 
 function parseRoles(v: unknown): string[] {
@@ -228,6 +264,7 @@ Deno.serve(async (req) => {
   const email = asString(body.email).toLowerCase();
   const postcodeRaw = asString(body.postcode);
   const roles = parseRoles(body.roles);
+  const utm = parseUtm(body.utm);
   const newsletter =
     body.newsletter === true ||
     body.newsletter === "yes" ||
@@ -284,6 +321,7 @@ Deno.serve(async (req) => {
     raw: {
       user_agent: req.headers.get("user-agent"),
       origin,
+      utm,
     },
   };
 
@@ -320,9 +358,19 @@ Deno.serve(async (req) => {
   try {
     const tags = ["clocal", "waitlist", ...roles.map((r) => r.toLowerCase())];
     if (newsletter) tags.push("newsletter");
-    const notes = `postcode: ${postcode}; roles: ${roles.join(", ")}; newsletter: ${
-      newsletter ? "yes" : "no"
-    }`;
+    // Tag paid traffic so it can be filtered in the CRM without reading notes.
+    if (utm.utm_medium && /paid|cpc|ppc/i.test(utm.utm_medium)) tags.push("paid-ad");
+    if (utm.utm_source) tags.push(`src:${utm.utm_source}`.slice(0, 40));
+
+    const campaign = describeUtm(utm);
+    const notes = [
+      `postcode: ${postcode}`,
+      `roles: ${roles.join(", ")}`,
+      `newsletter: ${newsletter ? "yes" : "no"}`,
+      campaign ? `campaign: ${campaign}` : "",
+    ]
+      .filter(Boolean)
+      .join("; ");
     // contacts.phone is NOT NULL with no default — must always be set.
     // contacts.region only allows belfast/london/scotland/wales/other —
     // "south-belfast" (from inferRegion, used for the waitlist_signups row
