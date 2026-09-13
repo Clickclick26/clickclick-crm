@@ -355,6 +355,7 @@ Deno.serve(async (req) => {
   // it this way works regardless of whether that constraint exists.
   let contactSyncStatus: "created" | "updated" | "failed" = "failed";
   let contactSyncError: string | null = null;
+  let contactId: string | null = null;
   try {
     const tags = ["clocal", "waitlist", ...roles.map((r) => r.toLowerCase())];
     if (newsletter) tags.push("newsletter");
@@ -405,10 +406,16 @@ Deno.serve(async (req) => {
         .update(contactPayload)
         .eq("id", existing.id);
       if (updateErr) throw updateErr;
+      contactId = existing.id as string;
       contactSyncStatus = "updated";
     } else {
-      const { error: insertErr } = await sb.from("contacts").insert(contactPayload);
+      const { data: inserted, error: insertErr } = await sb
+        .from("contacts")
+        .insert(contactPayload)
+        .select("id")
+        .maybeSingle();
       if (insertErr) throw insertErr;
+      contactId = (inserted?.id as string | undefined) ?? null;
       contactSyncStatus = "created";
     }
   } catch (err) {
@@ -454,13 +461,45 @@ Deno.serve(async (req) => {
   }
 
   if (signupId) {
-    await sb
+    // Persist the CRM sync outcome as well as the mail outcome. Without this
+    // a failed contacts write left no trace anywhere: the status was returned
+    // in the HTTP response, the browser ignored it, and the signup reported
+    // success. Someone could tick the newsletter box, be told they were on the
+    // list, and never exist in contacts (migration 0017).
+    const { error: statusErr } = await sb
       .from("waitlist_signups")
       .update({
         confirm_email_status: confirmStatus,
         confirm_email_error: confirmError,
+        contact_sync_status: contactSyncStatus,
+        contact_sync_error: contactSyncError,
+        contact_id: contactId,
       })
       .eq("id", signupId);
+    // Last line of defence: if even this write fails, say so in the logs
+    // rather than losing the fact that the sync failed.
+    if (statusErr) {
+      console.error(
+        "waitlist status write failed",
+        JSON.stringify({
+          signupId,
+          contactSyncStatus,
+          contactSyncError,
+          error: statusErr.message,
+        }),
+      );
+    }
+  }
+
+  // A failed contacts write is a real problem, not a warning: this person is on
+  // the waitlist but is not in the CRM, and if they ticked newsletter they will
+  // never be reachable. Log it at error level so it surfaces in the function
+  // logs instead of hiding among warnings.
+  if (contactSyncStatus === "failed") {
+    console.error(
+      "contacts sync FAILED — signup saved but contact missing",
+      JSON.stringify({ signupId, email, newsletter, error: contactSyncError }),
+    );
   }
 
   // Signup is saved even if mail failed — user still sees success.
