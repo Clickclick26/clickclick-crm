@@ -22,9 +22,52 @@
 -- added directly in the dashboard. This file must be safe to run against a
 -- table that is ahead of the repo.
 
+-- APPLIED TO PRODUCTION 2026-09-13 via the SQL editor, in this exact form.
+--
+-- contact_id is added here too. Migration 0009 declares it, but the live
+-- table has never had it: the first run of this file failed with
+-- 42703 "column contact_id of relation public.waitlist_signups does not
+-- exist" and rolled back. The live table is not what 0009 describes --
+-- brand_id, ip_hash and user_agent are also absent, while
+-- confirm_email_status, confirm_email_error and raw exist without appearing
+-- in any migration. Treat information_schema, not the migration history, as
+-- the truth for this table.
+
 alter table public.waitlist_signups
+  add column if not exists contact_id uuid,
   add column if not exists contact_sync_status text not null default 'pending',
   add column if not exists contact_sync_error text;
+
+-- FK only if contacts exists and the constraint is not already there, so this
+-- is safe to re-run and safe on a database where 0009 never fully applied.
+do $$
+begin
+  if exists (select 1 from information_schema.tables
+             where table_schema='public' and table_name='contacts')
+     and not exists (select 1 from information_schema.table_constraints
+                     where table_schema='public'
+                       and table_name='waitlist_signups'
+                       and constraint_name='waitlist_signups_contact_id_fkey')
+  then
+    alter table public.waitlist_signups
+      add constraint waitlist_signups_contact_id_fkey
+      foreign key (contact_id) references public.contacts(id) on delete set null;
+  end if;
+end $$;
+
+create index if not exists waitlist_signups_contact_id_idx
+  on public.waitlist_signups (contact_id);
+
+-- Backfill, run once on 2026-09-13: link the signups that already had a
+-- matching contact by email. 9 of 19 rows linked. contact_sync_status stays
+-- 'pending' on every pre-existing row on purpose -- nothing recorded what
+-- happened at the time, and writing 'created' or 'updated' would be inventing
+-- history. 'pending' honestly means "unknown, predates this fix".
+update public.waitlist_signups w
+set contact_id = c.id
+from public.contacts c
+where lower(c.email) = lower(w.email)
+  and w.contact_id is null;
 
 comment on column public.waitlist_signups.contact_sync_status is
   'pending | created | updated | failed. Written by waitlist-ingest after the CRM contacts write. "failed" means the person is on the waitlist but is NOT in contacts.';
