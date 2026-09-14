@@ -1063,6 +1063,24 @@ summary:focus-visible,
   background: rgba(232, 62, 140, 0.12);
 }
 
+/* Why the last check failed, and how old the current result is. Stacked under
+   the badge so a long provider message wraps instead of shoving Re-check off. */
+.tps-note {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+.tps-note-reason {
+  color: var(--pink);
+  font-weight: 600;
+}
+.tps-note-age {
+  color: var(--mid);
+}
+
 .link-btn {
   font-size: 0.7rem;
   font-weight: 600;

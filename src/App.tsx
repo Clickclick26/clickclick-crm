@@ -163,6 +163,12 @@ import {
 } from './lib/supabase/infoKits'
 import { createDeal, fetchDealForContact, updateDeal } from './lib/supabase/deals'
 import { createLarkVideoInvite } from './lib/supabase/lark'
+import {
+  type TpsFailureReasons,
+  loadTpsFailureReasons,
+  mergeTpsFailureReasons,
+  saveTpsFailureReasons,
+} from './lib/tps/failureReasons'
 
 type NavId =
   | 'dialer'
@@ -232,6 +238,43 @@ function describeTpsResult(result: TpsScreenResult): string {
   }
   if (result.skipped > 0) parts.push(`${result.skipped} skipped — no phone number`)
   return parts.join(' · ')
+}
+
+/**
+ * ICO guidance expects TPS/CTPS screening no older than 28 days, so a result
+ * past that can't be relied on for a marketing call — see the tps_screened_at
+ * comment in migration 0011. The dialer's gate only looks at tpsStatus, which
+ * has no concept of age, so the age has to be visible to be acted on.
+ */
+const TPS_MAX_AGE_DAYS = 28
+
+/** Plain-English age of a screening result, or null when there's nothing useful to say. */
+function tpsScreeningNote(contact: Contact): string | null {
+  if (!contact.tpsScreenedAt || contact.tpsStatus === 'unscreened') return null
+  const screenedAt = Date.parse(contact.tpsScreenedAt)
+  if (Number.isNaN(screenedAt)) return null
+  const days = Math.floor((Date.now() - screenedAt) / 86_400_000)
+  if (days >= TPS_MAX_AGE_DAYS) {
+    return `Checked ${days} days ago — out of date, re-check before calling.`
+  }
+  const left = TPS_MAX_AGE_DAYS - days
+  if (left <= 3) {
+    return `Checked ${days} days ago — runs out in ${left === 1 ? '1 day' : `${left} days`}.`
+  }
+  return days === 0 ? 'Checked today.' : `Checked ${days} days ago.`
+}
+
+/** Why the last check failed (if known) and how old the current result is. */
+function TpsStatusNote({ contact, reason }: { contact: Contact; reason?: string }) {
+  const note = tpsScreeningNote(contact)
+  const showReason = contact.tpsStatus === 'check_failed' && reason
+  if (!showReason && !note) return null
+  return (
+    <div className="tps-note">
+      {showReason && <span className="tps-note-reason">{reason}</span>}
+      {note && <span className="tps-note-age">{note}</span>}
+    </div>
+  )
 }
 
 /** Big obvious deal checklist states from the mock deal status. */
@@ -351,6 +394,10 @@ export default function App({
   )
   const [csvImporting, setCsvImporting] = useState(false)
   const [screeningAll, setScreeningAll] = useState(false)
+  // Why each failed TPS/CTPS check failed, so the contact keeps showing the
+  // reason after the toast has gone. Seeded from localStorage on first render.
+  const [tpsFailureReasons, setTpsFailureReasons] =
+    useState<TpsFailureReasons>(loadTpsFailureReasons)
   const [composingNew, setComposingNew] = useState(Boolean(savedPlace?.composingNew))
   const [savingContact, setSavingContact] = useState(false)
   const [customLists, setCustomLists] = useState<CustomList[]>(() => loadCustomLists())
@@ -1018,6 +1065,7 @@ export default function App({
       if (!result.configured) {
         showToast(result.message ?? 'TPS/CTPS screening not connected yet — see Settings.')
       } else {
+        applyTpsFailures(ids, tpsFailuresByLabel(ids, result.issues))
         showToast(`Screened ${result.screened}: ${describeTpsResult(result)}`)
       }
       setContacts(await fetchContacts(agents))
@@ -1260,6 +1308,41 @@ export default function App({
     saveContactField(person, { tags: next })
   }
 
+  /** Merges one screening pass into the stored failure reasons and persists it. */
+  function applyTpsFailures(screenedIds: string[], failures: TpsFailureReasons) {
+    setTpsFailureReasons((current) => {
+      const next = mergeTpsFailureReasons(current, screenedIds, failures)
+      saveTpsFailureReasons(next)
+      return next
+    })
+  }
+
+  /**
+   * Maps "screen all" issues back onto contact ids. The edge function labels
+   * each issue with the contact's name (falling back to its phone number) and
+   * carries no id, so only labels matching exactly one of the contacts we just
+   * screened are used — a duplicated name is left without a reason rather than
+   * pinned on the wrong person.
+   */
+  function tpsFailuresByLabel(
+    screenedIds: string[],
+    issues: { name: string; reason: string }[],
+  ): TpsFailureReasons {
+    const idsByLabel = new Map<string, string[]>()
+    for (const id of screenedIds) {
+      const person = contacts.find((c) => c.id === id)
+      const label = person?.name || person?.phone
+      if (!label) continue
+      idsByLabel.set(label, [...(idsByLabel.get(label) ?? []), id])
+    }
+    const failures: TpsFailureReasons = {}
+    for (const issue of issues) {
+      const ids = idsByLabel.get(issue.name)
+      if (ids?.length === 1) failures[ids[0]] = issue.reason
+    }
+    return failures
+  }
+
   async function screenOneContact(id: string) {
     try {
       const result = await screenContactsForTps([id])
@@ -1268,8 +1351,12 @@ export default function App({
         return
       }
       setContacts(await fetchContacts(agents))
+      const reason = result.failed > 0 ? (result.issues[0]?.reason ?? 'screening failed') : undefined
+      // Only one contact was screened, so the id is known for certain here —
+      // no need to match the issue back by name like "screen all" has to.
+      applyTpsFailures([id], reason ? { [id]: reason } : {})
       if (result.skipped > 0) showToast('No phone number on file — nothing to screen.')
-      else if (result.failed > 0) showToast(`Screening failed — ${result.issues[0]?.reason ?? 'try again'}.`)
+      else if (reason) showToast(`Screening failed — ${reason}.`)
       else showToast('Re-checked.')
     } catch (err) {
       console.error('Re-check failed', err)
@@ -3281,6 +3368,10 @@ export default function App({
                           >
                             Re-check
                           </button>
+                          <TpsStatusNote
+                            contact={contact}
+                            reason={tpsFailureReasons[contact.id]}
+                          />
                         </dd>
                       </div>
                       {contact.brandId === 'clocal' && (
