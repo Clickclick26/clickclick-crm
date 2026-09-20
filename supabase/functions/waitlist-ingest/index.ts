@@ -107,6 +107,7 @@ function normalizePostcode(value: string): string {
 }
 
 function inferRegion(postcode: string): string {
+  if (!postcode) return "unknown";
   const out = postcode.toUpperCase().replace(/\s+/g, "");
   if (out.startsWith("BT7") || out.startsWith("BT9")) return "south-belfast";
   if (out.startsWith("BT")) return "belfast";
@@ -270,10 +271,14 @@ Deno.serve(async (req) => {
     body.newsletter === "yes" ||
     body.newsletter === "true";
 
-  if (!name || !email || !postcodeRaw || roles.length === 0) {
+  // Postcode is optional from 20 Sep 2026. It was required here as well as on
+  // the form, so making the form field optional alone would have turned every
+  // blank-postcode signup into a 400 the visitor sees as an error. The waitlist
+  // only needs a name and an email to tell someone it is their turn.
+  if (!name || !email || roles.length === 0) {
     return json(
       400,
-      { error: "Please fill in name, email, postcode, and at least one role." },
+      { error: "Please fill in name, email, and at least one role." },
       origin,
     );
   }
@@ -286,7 +291,7 @@ Deno.serve(async (req) => {
     );
   }
 
-  if (!UK_POSTCODE_RE.test(postcodeRaw.toUpperCase().trim())) {
+  if (postcodeRaw && !UK_POSTCODE_RE.test(postcodeRaw.toUpperCase().trim())) {
     return json(
       400,
       { error: "Please enter a UK postcode (e.g. BT7 1NN)." },
@@ -294,7 +299,7 @@ Deno.serve(async (req) => {
     );
   }
 
-  const postcode = normalizePostcode(postcodeRaw);
+  const postcode = postcodeRaw ? normalizePostcode(postcodeRaw) : "";
   const region = inferRegion(postcode);
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -365,7 +370,7 @@ Deno.serve(async (req) => {
 
     const campaign = describeUtm(utm);
     const notes = [
-      `postcode: ${postcode}`,
+      `postcode: ${postcode || "not given"}`,
       `roles: ${roles.join(", ")}`,
       `newsletter: ${newsletter ? "yes" : "no"}`,
       campaign ? `campaign: ${campaign}` : "",
@@ -437,7 +442,7 @@ Deno.serve(async (req) => {
         subject: `CLocal waitlist: ${name}`,
         text:
           `New waitlist signup\n\n` +
-          `Name: ${name}\nEmail: ${email}\nPostcode: ${postcode}\n` +
+          `Name: ${name}\nEmail: ${email}\nPostcode: ${postcode || "not given"}\n` +
           `Roles: ${roles.join(", ")}\nNewsletter: ${newsletter ? "yes" : "no"}\n` +
           `Region: ${region}\n`,
         html:
@@ -445,7 +450,7 @@ Deno.serve(async (req) => {
           `<ul>` +
           `<li>Name: ${escapeHtml(name)}</li>` +
           `<li>Email: ${escapeHtml(email)}</li>` +
-          `<li>Postcode: ${escapeHtml(postcode)}</li>` +
+          `<li>Postcode: ${escapeHtml(postcode || "not given")}</li>` +
           `<li>Roles: ${escapeHtml(roles.join(", "))}</li>` +
           `<li>Newsletter: ${newsletter ? "yes" : "no"}</li>` +
           `<li>Region: ${escapeHtml(region)}</li>` +
