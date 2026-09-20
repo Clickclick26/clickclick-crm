@@ -60,6 +60,13 @@ export function BoardsScreen({
   agentId: string
   onToast: (message: string) => void
 }) {
+  // App builds a fresh onToast on every one of its renders. Depending on it
+  // directly makes reload new every time too, so the effect below refetches on
+  // every App render, and a failing fetch toasts, which re-renders App, which
+  // refetches: a loop. Reading it through a ref keeps it out of the deps.
+  const toast = useRef(onToast)
+  toast.current = onToast
+
   const [data, setData] = useState<BoardData>(EMPTY)
   const [loading, setLoading] = useState(true)
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -88,11 +95,12 @@ export function BoardsScreen({
         return next.boards.length ? next.boards[0].id : null
       })
     } catch (err) {
-      onToast(err instanceof Error ? err.message : 'Could not load your boards.')
+      toast.current(err instanceof Error ? err.message : 'Could not load your boards.')
     } finally {
       setLoading(false)
     }
-  }, [onToast])
+    // Loads once when the screen opens, and whenever something here asks it to.
+  }, [])
 
   useEffect(() => {
     void reload()
