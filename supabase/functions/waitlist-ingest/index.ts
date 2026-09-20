@@ -165,6 +165,50 @@ function escapeHtml(s: string): string {
     .replaceAll('"', "&quot;");
 }
 
+/**
+ * Logs in to the mailbox and hangs up, sending nothing.
+ *
+ * This exists because the daily canary could not see the thing that actually
+ * broke. It probed this function with the honeypot set, which returns early
+ * before any mail is attempted, so a dead SMTP login looked healthy: the
+ * confirmation emails were rejected with `535 Authentication Failed` from
+ * 16 Sep 2026 and nobody noticed for four days, and nine people joined the
+ * waitlist and heard nothing back.
+ *
+ * nodemailer's verify() does the full connect + AUTH handshake, so a wrong or
+ * expired mailbox password fails here exactly as it would on a real signup.
+ */
+async function verifyMail(): Promise<{ ok: boolean; error?: string }> {
+  const host = (Deno.env.get("TITAN_SMTP_HOST") || "smtp.titan.email").trim();
+  const port = Number((Deno.env.get("TITAN_SMTP_PORT") || "465").trim());
+  const user = (Deno.env.get("TITAN_SMTP_USER") || "").trim();
+  const pass = Deno.env.get("TITAN_SMTP_PASS") || "";
+
+  if (!user || !pass) {
+    return { ok: false, error: "Missing Titan mailbox secrets." };
+  }
+
+  const transporter = nodemailer.createTransport({
+    host,
+    port,
+    secure: port === 465,
+    auth: { user, pass },
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 20000,
+  });
+
+  try {
+    await transporter.verify();
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `SMTP ${host}:${port} as ${user} — ${message}` };
+  } finally {
+    transporter.close();
+  }
+}
+
 async function sendMail(opts: {
   to: string;
   subject: string;
@@ -243,6 +287,27 @@ Deno.serve(async (req) => {
   // it keeps passing — add the header to any new curl checks.
   if (!origin || !ALLOWED_ORIGINS.has(origin)) {
     return json(403, { error: "Origin not allowed" }, origin);
+  }
+
+  // Health probe for the daily canary: {"_probe":"smtp"}. Logs in to the
+  // mailbox, sends nothing, writes nothing, and never touches the database.
+  // Returns 200 {smtp:"ok"} when the login works and 503 when it does not, so
+  // the workflow can just check the status code.
+  {
+    let probeBody: Record<string, unknown> = {};
+    try {
+      probeBody = await req.clone().json();
+    } catch {
+      probeBody = {};
+    }
+    if (probeBody._probe === "smtp") {
+      const result = await verifyMail();
+      return json(
+        result.ok ? 200 : 503,
+        result.ok ? { smtp: "ok" } : { smtp: "failed", error: result.error },
+        origin,
+      );
+    }
   }
 
   if (!checkRateLimit(clientIp(req))) {
@@ -382,7 +447,13 @@ Deno.serve(async (req) => {
     // "south-belfast" (from inferRegion, used for the waitlist_signups row
     // above) isn't a valid value here, so it's sanitized before this insert.
     // brand_id must be explicit too, or it silently defaults to 'clickclick'.
-    const contactRegion = region === "south-belfast" ? "belfast" : region;
+    // contacts.region is a constrained column: only these five values are
+    // accepted. inferRegion produces "south-belfast" and (for a signup with no
+    // postcode) "unknown", neither of which it allows, so anything unknown is
+    // mapped to "other" rather than rejected.
+    const CONTACT_REGIONS = new Set(["belfast", "london", "scotland", "wales", "other"]);
+    const mapped = region === "south-belfast" ? "belfast" : region;
+    const contactRegion = CONTACT_REGIONS.has(mapped) ? mapped : "other";
     const contactPayload = {
       name,
       email,
@@ -425,7 +496,16 @@ Deno.serve(async (req) => {
     }
   } catch (err) {
     contactSyncStatus = "failed";
-    contactSyncError = err instanceof Error ? err.message : String(err);
+    // Supabase throws plain objects, not Errors. String(err) on one of those
+    // gives "[object Object]", which is what every failed signup recorded
+    // until 20 Sep 2026 - the sync had been failing silently and the error
+    // told us nothing about why.
+    contactSyncError =
+      err instanceof Error
+        ? err.message
+        : typeof err === "object" && err !== null
+        ? JSON.stringify(err)
+        : String(err);
     console.warn("contacts sync error", contactSyncError);
   }
 
